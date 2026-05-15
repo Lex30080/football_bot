@@ -1,0 +1,30 @@
+{
+  "name": "football_bot",
+  "version": "1.0.0",
+  "description": "football_bot  my first pet-project to learn programming stuffс",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lex30080/football_bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Lex30080/football_bot/issues"
+  },
+  "homepage": "https://github.com/Lex30080/football_bot#readme",
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "telegraf": "^4.16.3"
+  }
+}
