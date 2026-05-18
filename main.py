@@ -172,4 +172,14 @@ async def leave_handler(message: Message):
     else:
         await message.answer(f"{name} не записан на игру.")
 
+# implementation of the /poll command
+@dp.message(Command("poll"))
+async def poll_handler(message: Message):
+    if len(message.text.split()) < 2:
+        await message.answer("Использование: /poll <вариант1> <вариант2> ...")
+        return
+    parts = message.text.split()
+    parts.append("Пас")
+    await message.answer_poll(question="Когда играем?", options=parts[1:], allows_multiple_answers=True)
+
 asyncio.run(main())
