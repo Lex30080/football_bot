@@ -4,7 +4,7 @@ import random
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import CommandStart
-from aiogram.types import Message
+from aiogram.types import Message, PollAnswer
 from dotenv import load_dotenv
 from aiogram.filters import Command
 
@@ -17,6 +17,8 @@ MIN_PLAYERS = 10
 MAX_PLAYERS = 12
 game_active = False
 players_for_game = []
+poll_votes = {}
+poll_options = []
 
 # implementation of the game status
 def get_game_status():
@@ -180,6 +182,27 @@ async def poll_handler(message: Message):
         return
     parts = message.text.split()
     parts.append("Пас")
-    await message.answer_poll(question="Когда играем?", options=parts[1:], allows_multiple_answers=True)
+    await message.answer_poll(question="Когда играем?", options=parts[1:], is_anonymous=False, allows_multiple_answers=True)
+    global poll_options
+    global poll_votes
+    poll_options = parts[1:]
+    for option in poll_options:
+        poll_votes[option] = []
+    
+@dp.poll_answer()
+async def poll_answer_handler(poll_answer: PollAnswer):
+    name = poll_answer.user.first_name
+    for index, option in enumerate(poll_options):
+        if index in poll_answer.option_ids:
+            if name not in poll_votes[option]:
+                poll_votes[option].append(name)
+        else:
+            if name in poll_votes[option]:
+                poll_votes[option].remove(name)
+    # for deubgging purposes
+    print(poll_votes)
+    
+
+
 
 asyncio.run(main())
