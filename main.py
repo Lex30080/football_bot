@@ -13,7 +13,7 @@ load_dotenv()
 bot = Bot(token=os.getenv("BOT_TOKEN"))
 dp = Dispatcher()
 
-MIN_PLAYERS = 10
+MIN_PLAYERS = 2
 MAX_PLAYERS = 12
 game_active = False
 players_for_game = []
@@ -33,6 +33,9 @@ def get_game_status():
     else:
         return f"Игроков {len(players_for_game)}/{MAX_PLAYERS}\nНабор окончен, можно играть!"
 
+# implementation of the lineup formatting
+def format_lineup():
+    return "Состав игроков:\n\n" + "\n".join(players_for_game)
 
 # implementation of the start command
 @dp.message(CommandStart())
@@ -69,6 +72,26 @@ players = [
     "Murzinov",
     "Bukin",]
 
+player_ratings = {
+    "Ayrapetian": 5,
+    "Baburov": 1,
+    "Novikov": 4,
+    "Biriukov": 3,
+    "Tiupakov": 4,
+    "Komnatniy": 5,
+    "Strizhov": 3,
+    "Pochepets": 4,
+    "Kolesnikov": 5,
+    "Chechin": 2,
+    "Zhesterov": 1,
+    "Selivanov": 3,
+    "Kostik": 1,
+    "Slinko": 0,
+    "Kuznetsov": 0,
+    "Murzinov": 7,
+    "Bukin": 2,
+    "Zaika": 2,
+}
 
 # implementation of the players command
 
@@ -82,24 +105,6 @@ async def players_handler(message: Message):
     
     await message.answer(text)
 
-
-#implementation of the teams command
-@dp.message(Command("teams"))
-async def teams_handler(message: Message):
-    shuffled_players = players.copy()
-    random.shuffle(shuffled_players)
-    middle = len(shuffled_players) // 2
-    red_team = shuffled_players[:middle]
-    blue_team = shuffled_players[middle:]
-    text = "Команды:\n\n"
-    text += "Красная команда:\n"
-    for player in red_team:
-        text += f"• {player}\n"
-    text += "\nСиняя команда:\n"
-    for player in blue_team:
-        text += f"• {player}\n"
-
-    await message.answer(text)
 
 
 # implementation of the /game command
@@ -116,7 +121,7 @@ async def game_handler(message: Message):
         await message.answer(f"Набор уже идет! {len(players_for_game)}/{MAX_PLAYERS} игроков записано")    
 
 
-# implementation of the /join command
+# implementation of the /join command (NEEDS CORRECTING LATER)
 @dp.message(Command("join"))
 async def join_handler(message: Message):
    if not game_active:
@@ -142,7 +147,7 @@ async def lineup_handler(message: Message):
     if not game_active:
         await message.answer("Сейчас нет активной игры.\nИспользуйте /game")
         return
-    await message.answer("Состав игроков:\n\n" + "\n".join(players_for_game))
+    await message.answer(format_lineup())
 
 
 # implementaion of the /cancel command
@@ -158,7 +163,7 @@ async def cancel_handler(message: Message):
     await message.answer("Игра отменена.")
 
 
-# implementation of the /leave command
+# implementation of the /leave command (NEEDS CORRECTING LATER)
 @dp.message(Command("leave"))
 async def leave_handler(message: Message):
     global players_for_game
@@ -186,6 +191,7 @@ async def poll_handler(message: Message):
     global poll_options
     global poll_votes
     poll_options = parts[1:]
+    poll_votes = {}
     for option in poll_options:
         poll_votes[option] = []
     
@@ -202,7 +208,69 @@ async def poll_answer_handler(poll_answer: PollAnswer):
     # for deubgging purposes
     print(poll_votes)
     
+# implementation of the activate_game command
+@dp.message(Command("activate_game"))
+async def activate_game_handler(message: Message):
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.answer("Использование: /activate_game <dd.mm>")
+        return
+    
+    date = parts[1]
+    global game_active
+    global players_for_game
+        
+        
+    if date not in poll_votes:
+        await message.answer(f"Проверьте дату")
+        return
+    players_for_game = poll_votes[date].copy()
+    if len(players_for_game) < MIN_PLAYERS:
+        await message.answer(f"Недостаточно игроков для начала игры.")
+        game_active = False
+        return
+    else:
+        game_active = True
+        status = get_game_status()
+        await message.answer(f"Игра активирована на {date}!\n\nИспользуйте /join чтобы записаться\n\n")
+        await message.answer(status)  
+        await message.answer(format_lineup())
 
+# implementation of the /teams command
+@dp.message(Command("teams"))
+async def teams_handler(message: Message):
+    if not game_active:
+        await message.answer("Сейчас нет активной игры.")
+        return
 
+    shuffled_players = players_for_game.copy()
+    random.shuffle(shuffled_players)
 
+    sorted_players = sorted(
+        shuffled_players,
+        key=lambda player: player_ratings.get(player, 0),
+        reverse=True
+    )
+
+    red_team = []
+    green_team = []
+
+    for i, player in enumerate(sorted_players):
+        if i % 2 == 0:
+            red_team.append(player)
+        else:
+            green_team.append(player)
+
+    text = "Команды:\n\n"
+
+    text += "🔴 Красные:\n"
+    for player in red_team:
+        text += f"• {player}\n"
+
+    text += "\n🟢 Зеленые:\n"
+    for player in green_team:
+        text += f"• {player}\n"
+
+    await message.answer(text)                             
+        
 asyncio.run(main())
