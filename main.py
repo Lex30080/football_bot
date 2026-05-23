@@ -14,7 +14,9 @@ load_dotenv()
 bot = Bot(token=os.getenv("BOT_TOKEN"))
 dp = Dispatcher()
 
-conn = sqlite3.connect("football.db")
+conn = sqlite3.connect(
+    "football.db",
+    check_same_thread=False)
 cursor = conn.cursor()
 current_match_id = None # neded for database
 current_red_team = []
@@ -73,7 +75,7 @@ def get_player_id(name):
 
 
 
-# implementation of the database
+# creating tables in the database
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS players (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,7 +90,8 @@ CREATE TABLE IF NOT EXISTS matches (
     match_date TEXT,
     red_score INTEGER DEFAULT 0,
     green_score INTEGER DEFAULT 0,
-    winner TEXT
+    winner TEXT,
+    status TEXT DEFAULT 'active'       
 )
 """)
 
@@ -134,7 +137,7 @@ def get_game_status():
     elif len(players_for_game) < MIN_PLAYERS:
         return f"Игроков {len(players_for_game)}\nДо игры нужно еще {MIN_PLAYERS - len(players_for_game)} игроков."
     elif len(players_for_game) == MIN_PLAYERS:
-        return f"Игрков {len(players_for_game)}/{MAX_PLAYERS}\nМожно бронировать поле\nПродолжаем набор до {MAX_PLAYERS}"
+        return f"Игроков {len(players_for_game)}/{MAX_PLAYERS}\nМожно бронировать поле\nПродолжаем набор до {MAX_PLAYERS}"
     elif len(players_for_game) < MAX_PLAYERS:
         return f"Игроков {len(players_for_game)}/{MAX_PLAYERS}\nПродолжаем набор до {MAX_PLAYERS}"
     else:
@@ -150,19 +153,8 @@ async def start_handler(message: Message):
     await message.answer("⚽ Football bot is running!")
 
 
-    
-
-
-async def main():
-    print("Bot started")
-    await dp.start_polling(bot)
-
-
-
-
 
 # implementation of the players command
-
 @dp.message(Command("players"))
 async def players_handler(message: Message):
     text = "Игроки:\n\n"
@@ -176,7 +168,6 @@ async def players_handler(message: Message):
 
 
 # implementation of the /game command
-
 @dp.message(Command("game"))
 async def game_handler(message: Message):
     global players_for_game
@@ -307,6 +298,15 @@ async def activate_game_handler(message: Message):
 # implementation of the /teams command
 @dp.message(Command("teams"))
 async def teams_handler(message: Message):
+    
+    global current_red_team
+    global current_green_team
+    global current_match_id
+    global players_for_game
+
+    if current_match_id is not None:
+        await message.answer("Матч уже создан.")
+        return
     if not game_active:
         await message.answer("Сейчас нет активной игры.")
         return
@@ -315,10 +315,7 @@ async def teams_handler(message: Message):
         await message.answer("Недостаточно игроков.")
         return
 
-    global current_red_team
-    global current_green_team
-    global current_match_id
-
+    
     current_red_team = []
     current_green_team = []
 
@@ -382,5 +379,190 @@ async def teams_handler(message: Message):
         text += f"• {player}\n"
 
     await message.answer(text)                             
-# I LEFT FOR LATER TO DISCOVER TG IDS OF PLAYERS      
-asyncio.run(main())
+# I LEFT FOR LATER TO DISCOVER TG IDS OF PLAYERS 
+
+# implementation of the /finish command
+
+@dp.message(Command("finish"))
+async def finish_handler(message: Message):
+    global current_match_id
+    global game_active
+    global current_red_team
+    global current_green_team
+
+    if current_match_id is None:
+        await message.answer("Нет активного матча.")
+        return
+
+    # ПРОВЕРКА: матч уже завершен?
+    cursor.execute("""
+    SELECT status
+    FROM matches
+    WHERE id = ?
+    """, (current_match_id,))
+
+    match_result = cursor.fetchone()
+
+    if not match_result:
+        await message.answer("Матч не найден.")
+        return
+    
+    if match_result[0] != 'active':
+        await message.answer("Матч уже завершен.")
+        return
+
+    parts = message.text.split()
+
+    if len(parts) < 3:
+        await message.answer(
+            "Использование: /finish <red_score> <green_score>"
+        )
+        return
+
+    try:
+        red_score = int(parts[1])
+        green_score = int(parts[2])
+
+    except ValueError:
+        await message.answer("Счет должен быть числом")
+        return
+
+    if red_score > green_score:
+        winner = "red"
+
+    elif green_score > red_score:
+        winner = "green"
+
+    else:
+        winner = "draw"
+
+    cursor.execute("""
+    UPDATE matches
+    SET red_score = ?,
+        green_score = ?,
+        winner = ?,
+        status = 'awaiting goals'
+    WHERE id = ?
+    """, (red_score, green_score, winner, current_match_id))
+
+    conn.commit()
+    game_active = False
+
+    await message.answer(
+        f"Матч завершен!\n"
+        f"🔴 {red_score} - {green_score} 🟢"
+    )
+
+# implementation of the /whoscored command
+@dp.message(Command("scored"))
+async def scored_handler(message: Message):
+    global current_match_id
+    global current_red_team
+    global current_green_team
+    global players_for_game
+
+    if current_match_id is None:
+        await message.answer("Нет активного матча.")
+        return
+    
+    cursor.execute("""
+    SELECT COUNT(*)
+    FROM goals
+    WHERE match_id = ?
+    """, (current_match_id,))
+
+    goals_already_added = cursor.fetchone()[0]
+
+    if goals_already_added > 0:
+        await message.answer("Голы для этого матча уже внесены.")
+        return
+    parts = message.text.split()
+
+    if len(parts) < 3 or len(parts[1:]) % 2 != 0:
+        await message.answer(
+            "Использование:\n/scored Murzinov 4 Novikov 2"
+        )
+        return
+    goal_data = []
+    added_goals = 0
+
+    for i in range(1, len(parts), 2):
+
+        scorer = parts[i]
+
+        try:
+            goals_count = int(parts[i + 1])
+        except ValueError:
+            await message.answer(f"Ошибка в количестве голов у {scorer}")
+            return
+
+        if scorer not in current_red_team and scorer not in current_green_team:
+            await message.answer(f"{scorer} не играл в матче.")
+            return
+
+        player_id = get_player_id(scorer)
+
+        if scorer in current_red_team:
+            team = "red"
+        else:
+            team = "green"
+
+        goal_data.append((player_id, team, goals_count))
+        added_goals += goals_count
+
+
+    cursor.execute("""
+    SELECT red_score, green_score
+    FROM matches
+    WHERE id = ?
+    """, (current_match_id,))
+
+    match_data = cursor.fetchone()
+
+    expected_goals = match_data[0] + match_data[1]
+
+    if added_goals != expected_goals:
+        await message.answer(
+            f"⚠️ Несовпадение!\n"
+            f"Счет матча: {expected_goals} голов\n"
+            f"Внесено голов: {added_goals}"
+        )
+        return
+
+
+    for player_id, team, goals_count in goal_data:
+        for _ in range(goals_count):
+            cursor.execute("""
+            INSERT INTO goals (match_id, scorer_id, team)
+            VALUES (?, ?, ?)
+            """, (current_match_id, player_id, team))
+
+    conn.commit()
+    
+    
+    cursor.execute("""
+    UPDATE matches
+    SET status = 'finished'
+    WHERE id = ?
+    """, (current_match_id,))
+
+    conn.commit()
+
+    current_match_id = None
+    current_red_team = []
+    current_green_team = []
+    players_for_game = []
+
+    await message.answer(f"⚽ Добавлено голов: {added_goals}")
+
+async def main():
+    try:
+        print("Bot started")
+        await dp.start_polling(bot)
+
+    finally:
+        conn.close()
+        print("Database closed")
+
+if __name__ == "__main__":
+    asyncio.run(main())
