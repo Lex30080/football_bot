@@ -1,6 +1,7 @@
 import asyncio
 import os
 import random
+import sqlite3
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import CommandStart
@@ -13,44 +14,11 @@ load_dotenv()
 bot = Bot(token=os.getenv("BOT_TOKEN"))
 dp = Dispatcher()
 
-MIN_PLAYERS = 2
-MAX_PLAYERS = 12
-game_active = False
-players_for_game = []
-poll_votes = {}
-poll_options = []
-
-# implementation of the game status
-def get_game_status():
-    if not game_active:
-        return "Нет активной игры."
-    elif len(players_for_game) < MIN_PLAYERS:
-        return f"Игроков {len(players_for_game)}\nДо игры нужно еще {MIN_PLAYERS - len(players_for_game)} игроков."
-    elif len(players_for_game) == MIN_PLAYERS:
-        return f"Игрков {len(players_for_game)}/{MAX_PLAYERS}\nМожно бронировать поле\nПродолжаем набор до {MAX_PLAYERS}"
-    elif len(players_for_game) < MAX_PLAYERS:
-        return f"Игроков {len(players_for_game)}/{MAX_PLAYERS}\nПродолжаем набор до {MAX_PLAYERS}"
-    else:
-        return f"Игроков {len(players_for_game)}/{MAX_PLAYERS}\nНабор окончен, можно играть!"
-
-# implementation of the lineup formatting
-def format_lineup():
-    return "Состав игроков:\n\n" + "\n".join(players_for_game)
-
-# implementation of the start command
-@dp.message(CommandStart())
-async def start_handler(message: Message):
-    await message.answer("⚽ Football bot is running!")
-
-
-    
-
-
-async def main():
-    print("Bot started")
-    await dp.start_polling(bot)
-
-
+conn = sqlite3.connect("football.db")
+cursor = conn.cursor()
+current_match_id = None # neded for database
+current_red_team = []
+current_green_team = []
 
 # all availiable players
 players = [
@@ -92,6 +60,106 @@ player_ratings = {
     "Bukin": 2,
     "Zaika": 2,
 }
+
+# helper function for database to get player id by name
+def get_player_id(name):
+    cursor.execute(
+        "SELECT id FROM players WHERE name = ?",
+        (name,))
+    result = cursor.fetchone()
+    if result:
+        return result[0]
+    return None
+
+
+
+# implementation of the database
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS players (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id INTEGER UNIQUE,
+    name TEXT UNIQUE
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS matches (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_date TEXT,
+    red_score INTEGER DEFAULT 0,
+    green_score INTEGER DEFAULT 0,
+    winner TEXT
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS match_players (
+    match_id INTEGER,
+    player_id INTEGER,
+    team TEXT
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id INTEGER,
+    scorer_id INTEGER,
+    team TEXT
+)
+""")
+
+
+conn.commit()
+
+# helper function for database to add player
+for player in players:
+    cursor.execute(
+        "INSERT OR IGNORE INTO players (name) VALUES (?)",
+        (player,))
+conn.commit()
+
+MIN_PLAYERS = 2 # CHANGE LATER TO NORMAL NUMBER
+MAX_PLAYERS = 10 # CHANGE LATER TO NORMAL NUMBER
+
+game_active = False
+players_for_game = []
+poll_votes = {}
+poll_options = []
+
+# implementation of the game status
+def get_game_status():
+    if not game_active:
+        return "Нет активной игры."
+    elif len(players_for_game) < MIN_PLAYERS:
+        return f"Игроков {len(players_for_game)}\nДо игры нужно еще {MIN_PLAYERS - len(players_for_game)} игроков."
+    elif len(players_for_game) == MIN_PLAYERS:
+        return f"Игрков {len(players_for_game)}/{MAX_PLAYERS}\nМожно бронировать поле\nПродолжаем набор до {MAX_PLAYERS}"
+    elif len(players_for_game) < MAX_PLAYERS:
+        return f"Игроков {len(players_for_game)}/{MAX_PLAYERS}\nПродолжаем набор до {MAX_PLAYERS}"
+    else:
+        return f"Игроков {len(players_for_game)}/{MAX_PLAYERS}\nНабор окончен, можно играть!"
+
+# implementation of the lineup formatting
+def format_lineup():
+    return "Состав игроков:\n\n" + "\n".join(players_for_game)
+
+# implementation of the start command
+@dp.message(CommandStart())
+async def start_handler(message: Message):
+    await message.answer("⚽ Football bot is running!")
+
+
+    
+
+
+async def main():
+    print("Bot started")
+    await dp.start_polling(bot)
+
+
+
+
 
 # implementation of the players command
 
@@ -242,6 +310,17 @@ async def teams_handler(message: Message):
     if not game_active:
         await message.answer("Сейчас нет активной игры.")
         return
+    
+    if len(players_for_game) < MIN_PLAYERS:
+        await message.answer("Недостаточно игроков.")
+        return
+
+    global current_red_team
+    global current_green_team
+    global current_match_id
+
+    current_red_team = []
+    current_green_team = []
 
     shuffled_players = players_for_game.copy()
     random.shuffle(shuffled_players)
@@ -254,12 +333,43 @@ async def teams_handler(message: Message):
 
     red_team = []
     green_team = []
+    
 
     for i, player in enumerate(sorted_players):
         if i % 2 == 0:
             red_team.append(player)
         else:
             green_team.append(player)
+    
+    current_red_team = red_team.copy()
+    current_green_team = green_team.copy()
+    
+    cursor.execute("""
+    INSERT INTO matches (match_date)
+    VALUES (DATETIME('now'))
+    """)
+
+    conn.commit()
+
+    current_match_id = cursor.lastrowid
+
+    for player in red_team:
+        player_id = get_player_id(player)
+
+        cursor.execute("""
+        INSERT INTO match_players (match_id, player_id, team)
+        VALUES (?, ?, ?)
+        """, (current_match_id, player_id, "red"))
+
+    for player in green_team:
+        player_id = get_player_id(player)
+
+        cursor.execute("""
+        INSERT INTO match_players (match_id, player_id, team)
+        VALUES (?, ?, ?)
+        """, (current_match_id, player_id, "green"))
+
+    conn.commit()
 
     text = "Команды:\n\n"
 
@@ -272,5 +382,5 @@ async def teams_handler(message: Message):
         text += f"• {player}\n"
 
     await message.answer(text)                             
-        
+# I LEFT FOR LATER TO DISCOVER TG IDS OF PLAYERS      
 asyncio.run(main())
