@@ -63,6 +63,31 @@ player_ratings = {
     "Zaika": 2,
 }
 
+telegram_usernames = {
+    "atcartsid": "Sidorov",
+    "strzhv_d": "Strizhov",
+    "Romzes666": "Zaika",
+    "aerovit": "Tiupakov",
+    "desmatch": "Kostik",
+    "r1_sh2": "Slinko",
+    "naz_zhe": "Zhesterov",
+    "???": "Spiridonov",
+    "consciousness007": "Pochepets",
+    "mmurz": "Murzinov",
+    "????": "Kolesnikov",
+    "niksercatc": "Chechin",
+    "dmalykhh": "Malykh",
+    "Romch_77": "Baburov",
+    "one_xtra": "Stepanov",
+    "Mikel_Dudikoff": "Bukin",
+    "komnatnyiegor": "Komnatniy",
+    "??": "Ayrapetian",
+    "salivanatc": "Selivanov",
+    "?": "Kuznetsov",
+    "?????": "Biriukov",
+    "Alexgreensleeves": "Novikov"
+}
+
 # helper function for database to get player id by name
 def get_player_id(name):
     cursor.execute(
@@ -73,6 +98,23 @@ def get_player_id(name):
         return result[0]
     return None
 
+# helper function for database to get active match id 
+def get_active_match_id():
+
+    cursor.execute("""
+    SELECT id
+    FROM matches
+    WHERE is_active = 1
+    ORDER BY id DESC
+    LIMIT 1
+    """)
+
+    result = cursor.fetchone()
+
+    if result:
+        return result[0]
+
+    return None
 
 
 # creating tables in the database
@@ -112,6 +154,14 @@ CREATE TABLE IF NOT EXISTS goals (
 )
 """)
 
+# need this because I need to save match Id in database not in memory
+try:
+    cursor.execute("""
+    ALTER TABLE matches
+    ADD COLUMN is_active INTEGER DEFAULT 0
+    """)
+except:
+    pass
 
 conn.commit()
 
@@ -301,12 +351,14 @@ async def teams_handler(message: Message):
     
     global current_red_team
     global current_green_team
-    global current_match_id
     global players_for_game
+    global current_match_id
 
-    if current_match_id is not None:
+    active_match_id = get_active_match_id()
+    if active_match_id is not None:
         await message.answer("Матч уже создан.")
         return
+
     if not game_active:
         await message.answer("Сейчас нет активной игры.")
         return
@@ -341,14 +393,29 @@ async def teams_handler(message: Message):
     current_red_team = red_team.copy()
     current_green_team = green_team.copy()
     
+        # деактивируем прошлые матчи
     cursor.execute("""
-    INSERT INTO matches (match_date)
-    VALUES (DATETIME('now'))
+    UPDATE matches
+    SET is_active = 0
+    WHERE is_active = 1
+    """)
+
+    # создаем новый активный матч
+    cursor.execute("""
+    INSERT INTO matches (
+        match_date,
+        is_active
+    )
+    VALUES (
+        DATETIME('now'),
+        1
+    )
     """)
 
     conn.commit()
 
-    current_match_id = cursor.lastrowid
+    new_match_id = cursor.lastrowid
+    current_match_id = new_match_id
 
     for player in red_team:
         player_id = get_player_id(player)
@@ -356,7 +423,7 @@ async def teams_handler(message: Message):
         cursor.execute("""
         INSERT INTO match_players (match_id, player_id, team)
         VALUES (?, ?, ?)
-        """, (current_match_id, player_id, "red"))
+        """, (new_match_id, player_id, "red"))
 
     for player in green_team:
         player_id = get_player_id(player)
@@ -364,7 +431,7 @@ async def teams_handler(message: Message):
         cursor.execute("""
         INSERT INTO match_players (match_id, player_id, team)
         VALUES (?, ?, ?)
-        """, (current_match_id, player_id, "green"))
+        """, (new_match_id, player_id, "green"))
 
     conn.commit()
 
@@ -385,21 +452,23 @@ async def teams_handler(message: Message):
 
 @dp.message(Command("finish"))
 async def finish_handler(message: Message):
-    global current_match_id
+    
     global game_active
     global current_red_team
     global current_green_team
 
-    if current_match_id is None:
-        await message.answer("Нет активного матча.")
-        return
+    
+    match_id = get_active_match_id()
 
-    # ПРОВЕРКА: матч уже завершен?
+    if match_id is None:
+       await message.answer("Нет активного матча.")
+       return
+    
     cursor.execute("""
-    SELECT status
-    FROM matches
-    WHERE id = ?
-    """, (current_match_id,))
+        SELECT status
+        FROM matches
+        WHERE id = ?
+        """, (match_id,))
 
     match_result = cursor.fetchone()
 
@@ -441,9 +510,10 @@ async def finish_handler(message: Message):
     SET red_score = ?,
         green_score = ?,
         winner = ?,
-        status = 'awaiting goals'
+        status = 'awaiting goals',
+        is_active = 1
     WHERE id = ?
-    """, (red_score, green_score, winner, current_match_id))
+    """, (red_score, green_score, winner, match_id))
 
     conn.commit()
     game_active = False
@@ -453,15 +523,16 @@ async def finish_handler(message: Message):
         f"🔴 {red_score} - {green_score} 🟢"
     )
 
-# implementation of the /whoscored command
+# implementation of the /scored command
 @dp.message(Command("scored"))
 async def scored_handler(message: Message):
-    global current_match_id
+    
     global current_red_team
     global current_green_team
     global players_for_game
 
-    if current_match_id is None:
+    match_id = get_active_match_id()
+    if match_id is None:
         await message.answer("Нет активного матча.")
         return
     
@@ -469,7 +540,7 @@ async def scored_handler(message: Message):
     SELECT COUNT(*)
     FROM goals
     WHERE match_id = ?
-    """, (current_match_id,))
+    """, (match_id,))
 
     goals_already_added = cursor.fetchone()[0]
 
@@ -496,16 +567,23 @@ async def scored_handler(message: Message):
             await message.answer(f"Ошибка в количестве голов у {scorer}")
             return
 
-        if scorer not in current_red_team and scorer not in current_green_team:
+        player_id = get_player_id(scorer)
+
+        cursor.execute("""
+        SELECT team
+        FROM match_players
+        WHERE match_id = ?
+        AND player_id = ?
+        """, (match_id, player_id))
+
+        team_result = cursor.fetchone()
+
+        if not team_result:
             await message.answer(f"{scorer} не играл в матче.")
             return
 
-        player_id = get_player_id(scorer)
-
-        if scorer in current_red_team:
-            team = "red"
-        else:
-            team = "green"
+        team = team_result[0]
+    
 
         goal_data.append((player_id, team, goals_count))
         added_goals += goals_count
@@ -515,7 +593,7 @@ async def scored_handler(message: Message):
     SELECT red_score, green_score
     FROM matches
     WHERE id = ?
-    """, (current_match_id,))
+    """, (match_id,))
 
     match_data = cursor.fetchone()
 
@@ -535,25 +613,246 @@ async def scored_handler(message: Message):
             cursor.execute("""
             INSERT INTO goals (match_id, scorer_id, team)
             VALUES (?, ?, ?)
-            """, (current_match_id, player_id, team))
+            """, (match_id, player_id, team))
 
     conn.commit()
     
     
     cursor.execute("""
     UPDATE matches
-    SET status = 'finished'
+    SET status = 'finished',
+        is_active = 0
     WHERE id = ?
-    """, (current_match_id,))
+    """, (match_id,))
 
     conn.commit()
 
-    current_match_id = None
+    
     current_red_team = []
     current_green_team = []
     players_for_game = []
 
     await message.answer(f"⚽ Добавлено голов: {added_goals}")
+
+
+# implementation of the player stats command
+@dp.message(Command("stats"))
+async def stats_handler(message: Message):
+
+    parts = message.text.split()
+
+    # проверка аргумента
+    if len(parts) < 2:
+        await message.answer(
+            "Использование:\n/stats Фамилия"
+        )
+        return
+
+    player_name = parts[1]
+
+    # получаем player_id
+    player_id = get_player_id(player_name)
+
+    if player_id is None:
+        await message.answer("Игрок не найден.")
+        return
+
+    # =========================
+    # МАТЧИ
+    # =========================
+    cursor.execute("""
+    SELECT COUNT(*)
+    FROM match_players
+    WHERE player_id = ?
+    """, (player_id,))
+
+    matches = cursor.fetchone()[0]
+
+    # =========================
+    # ГОЛЫ
+    # =========================
+    cursor.execute("""
+    SELECT COUNT(*)
+    FROM goals
+    WHERE scorer_id = ?
+    """, (player_id,))
+
+    goals = cursor.fetchone()[0]
+
+    # =========================
+    # ПОБЕДЫ
+    # =========================
+    cursor.execute("""
+    SELECT COUNT(*)
+    FROM matches m
+    JOIN match_players mp
+        ON m.id = mp.match_id
+    WHERE mp.player_id = ?
+    AND (
+        (mp.team = 'red' AND m.winner = 'red')
+        OR
+        (mp.team = 'green' AND m.winner = 'green')
+    )
+    """, (player_id,))
+
+    wins = cursor.fetchone()[0]
+
+    # =========================
+    # ПОРАЖЕНИЯ
+    # =========================
+    cursor.execute("""
+    SELECT COUNT(*)
+    FROM matches m
+    JOIN match_players mp
+        ON m.id = mp.match_id
+    WHERE mp.player_id = ?
+    AND (
+        (mp.team = 'red' AND m.winner = 'green')
+        OR
+        (mp.team = 'green' AND m.winner = 'red')
+    )
+    """, (player_id,))
+
+    losses = cursor.fetchone()[0]
+
+    # =========================
+    # НИЧЬИ
+    # =========================
+    cursor.execute("""
+    SELECT COUNT(*)
+    FROM matches m
+    JOIN match_players mp
+        ON m.id = mp.match_id
+    WHERE mp.player_id = ?
+    AND m.winner = 'draw'
+    """, (player_id,))
+
+    draws = cursor.fetchone()[0]
+
+    # =========================
+    # ОТВЕТ
+    # =========================
+    text = (
+        f"📊 Статистика игрока {player_name}\n\n"
+        f"⚽ Матчей: {matches}\n"
+        f"🥅 Голов: {goals}\n"
+        f"🏆 Побед: {wins}\n"
+        f"❌ Поражений: {losses}\n"
+        f"🤝 Ничьих: {draws}"
+    )
+
+    await message.answer(text)
+
+# implementaion of the /oldmatch command
+@dp.message(Command("oldmatch"))
+async def newmatch_handler(message: Message):
+
+    # деактивируем прошлые матчи
+    cursor.execute("""
+    UPDATE matches
+    SET is_active = 0
+    WHERE is_active = 1
+    """)
+
+    # создаем новый матч
+    cursor.execute("""
+    INSERT INTO matches (
+        match_date,
+        is_active,
+        status
+    )
+    VALUES (
+        DATETIME('now'),
+        1,
+        'active'
+    )
+    """)
+
+    conn.commit()
+
+    match_id = cursor.lastrowid
+
+    await message.answer(
+        f"Создан матч #{match_id}"
+    )
+
+# implementation of the /add command
+@dp.message(Command("add"))
+async def add_player_handler(message: Message):
+
+    match_id = get_active_match_id()
+
+    if match_id is None:
+        await message.answer(
+            "Нет активного матча.\nСначала создайте матч."
+        )
+        return
+
+    parts = message.text.split()
+
+    if len(parts) < 4:
+        await message.answer(
+            "Использование:\n/add red Murzinov Novikov"
+        )
+        return
+
+    team = parts[1].lower()
+
+    if team not in ["red", "green"]:
+        await message.answer(
+            "Команда должна быть red или green"
+        )
+        return
+
+    players_to_add = parts[2:]
+
+    added_players = []
+
+    for player_name in players_to_add:
+
+        # добавляем игрока в players если его нет
+        cursor.execute("""
+        INSERT OR IGNORE INTO players (name)
+        VALUES (?)
+        """, (player_name,))
+
+        conn.commit()
+
+        player_id = get_player_id(player_name)
+
+        # проверяем уже добавлен или нет
+        cursor.execute("""
+        SELECT *
+        FROM match_players
+        WHERE match_id = ?
+        AND player_id = ?
+        """, (match_id, player_id))
+
+        exists = cursor.fetchone()
+
+        if exists:
+            continue
+
+        cursor.execute("""
+        INSERT INTO match_players (
+            match_id,
+            player_id,
+            team
+        )
+        VALUES (?, ?, ?)
+        """, (match_id, player_id, team))
+
+        added_players.append(player_name)
+
+    conn.commit()
+
+    if added_players:
+        await message.answer(
+            f"Добавлены в {team}:\n" +
+            "\n".join(added_players)
+        )
+    else:
+        await message.answer("Никто не был добавлен.")
 
 async def main():
     try:
