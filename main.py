@@ -8,6 +8,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message, PollAnswer
 from dotenv import load_dotenv
 from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
 
 load_dotenv()
 
@@ -104,6 +105,13 @@ telegram_usernames = {
     "Alexgreensleeves": "Novikov"
 }
 
+# admins NEED TO ADD romik and andrey LATER
+ADMINS = {490874415}
+
+# helper to check if Admin
+def is_admin(user_id):
+    return user_id in ADMINS
+
 # helper function for database to get player id by name
 def get_player_id(name):
     cursor.execute(
@@ -131,6 +139,13 @@ def get_active_match_id():
         return result[0]
 
     return None
+
+# helper function for delete messages in tg
+async def safe_delete(message: Message):
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        pass
 
 
 # creating tables in the database
@@ -257,22 +272,25 @@ async def start_handler(message: Message):
 
 
 
-# implementation of the players command
+# implementation of the PLAYERS command
 @dp.message(Command("players"))
 async def players_handler(message: Message):
+    await safe_delete(message)
     text = "Игроки:\n\n"
     shirt = 0
     for player in players:
         shirt += 1
         text += f"{shirt}. {player}\n"
     
-    await message.answer(text)
+    await bot.send_message(message.from_user.id, text)
 
 
 
-# implementation of the /game command
+# implementation of the /GAME command
 @dp.message(Command("game"))
 async def game_handler(message: Message):
+    if not is_admin(message.from_user.id):
+        return
     global players_for_game
     global game_active
     if not game_active:
@@ -283,7 +301,7 @@ async def game_handler(message: Message):
         await message.answer(f"Набор уже идет! {len(players_for_game)}/{MAX_PLAYERS} игроков записано")    
 
 
-# implementation of the /join command (NEEDS CORRECTING LATER)
+# implementation of the /JOIN command (NEEDS CORRECTING LATER)
 @dp.message(Command("join"))
 async def join_handler(message: Message):
    if not game_active:
@@ -303,18 +321,23 @@ async def join_handler(message: Message):
    else:
        await message.answer(f"{name} уже записан на игру.")
 
-# implememntation of the /lineup command
+# implememntation of the /LINEUP command
 @dp.message(Command("lineup"))
+
 async def lineup_handler(message: Message):
+    await safe_delete(message)
     if not game_active:
-        await message.answer("Сейчас нет активной игры.\nИспользуйте /game")
+        await bot.send_message(message.from_user.id, "Сейчас нет активной игры.\nИспользуйте /game")
         return
-    await message.answer(format_lineup())
+    await bot.send_message(message.from_user.id, format_lineup())
 
 
-# implementaion of the /cancel command
+# implementaion of the /CANCEL command
 @dp.message(Command("cancel"))
 async def cancel_handler(message: Message):
+    await safe_delete(message)
+    if not is_admin(message.from_user.id):
+        return
     global game_active
     global players_for_game
     if not game_active:
@@ -325,7 +348,7 @@ async def cancel_handler(message: Message):
     await message.answer("Игра отменена.")
 
 
-# implementation of the /leave command (NEEDS CORRECTING LATER)
+# implementation of the /LEAVE command (NEEDS CORRECTING LATER)
 @dp.message(Command("leave"))
 async def leave_handler(message: Message):
     global players_for_game
@@ -341,7 +364,7 @@ async def leave_handler(message: Message):
     else:
         await message.answer(f"{name} не записан на игру.")
 
-# implementation of the /poll command
+# implementation of the /POLL command
 @dp.message(Command("poll"))
 async def poll_handler(message: Message):
     if len(message.text.split()) < 2:
@@ -370,12 +393,15 @@ async def poll_answer_handler(poll_answer: PollAnswer):
     # for deubgging purposes
     print(poll_votes)
     
-# implementation of the activate_game command
+# implementation of the /ACTIVATE_GAME command
 @dp.message(Command("activate_game"))
 async def activate_game_handler(message: Message):
+    await safe_delete(message)
+    if not is_admin(message.from_user.id):
+        return
     parts = message.text.split()
     if len(parts) < 2:
-        await message.answer("Использование: /activate_game <dd.mm>")
+        await bot.send_message(message.from_user.id, "Использование: /activate_game <dd.mm>")
         return
     
     date = parts[1]
@@ -384,11 +410,11 @@ async def activate_game_handler(message: Message):
         
         
     if date not in poll_votes:
-        await message.answer(f"Проверьте дату")
+        await bot.send_message(message.from_user.id, f"Проверьте дату")
         return
     players_for_game = poll_votes[date].copy()
     if len(players_for_game) < MIN_PLAYERS:
-        await message.answer(f"Недостаточно игроков для начала игры.")
+        await bot.send_message(message.from_user.id, f"Недостаточно игроков для начала игры.")
         game_active = False
         return
     else:
@@ -401,7 +427,9 @@ async def activate_game_handler(message: Message):
 # implementation of the /teams command
 @dp.message(Command("teams"))
 async def teams_handler(message: Message):
-    
+    if not is_admin(message.from_user.id):
+        return
+
     global current_red_team
     global current_green_team
     global players_for_game
@@ -501,11 +529,12 @@ async def teams_handler(message: Message):
     await message.answer(text)                             
 # I LEFT FOR LATER TO DISCOVER TG IDS OF PLAYERS 
 
-# implementation of the /finish command
-
+# implementation of the /FINISH command
 @dp.message(Command("finish"))
 async def finish_handler(message: Message):
-    
+    if not is_admin(message.from_user.id):
+        return
+
     global game_active
     global current_red_team
     global current_green_team
@@ -576,17 +605,19 @@ async def finish_handler(message: Message):
         f"🔴 {red_score} - {green_score} 🟢"
     )
 
-# implementation of the /scored command
+# implementation of the /SCORED command
 @dp.message(Command("scored"))
 async def scored_handler(message: Message):
-    
+    await safe_delete(message)
+    if not is_admin(message.from_user.id):
+        return
     global current_red_team
     global current_green_team
     global players_for_game
 
     match_id = get_active_match_id()
     if match_id is None:
-        await message.answer("Нет активного матча.")
+        await bot.send_message(message.from_user.id, "Нет активного матча.")
         return
     
     cursor.execute("""
@@ -598,12 +629,12 @@ async def scored_handler(message: Message):
     goals_already_added = cursor.fetchone()[0]
 
     if goals_already_added > 0:
-        await message.answer("Голы для этого матча уже внесены.")
+        await bot.send_message(message.from_user.id, "Голы для этого матча уже внесены.")
         return
     parts = message.text.split()
 
     if len(parts) < 3 or len(parts[1:]) % 2 != 0:
-        await message.answer(
+        await bot.send_message(message.from_user.id,
             "Использование:\n/scored Murzinov 4 Novikov 2"
         )
         return
@@ -617,7 +648,7 @@ async def scored_handler(message: Message):
         try:
             goals_count = int(parts[i + 1])
         except ValueError:
-            await message.answer(f"Ошибка в количестве голов у {scorer}")
+            await bot.send_message(message.from_user.id, f"Ошибка в количестве голов у {scorer}")
             return
 
         player_id = get_player_id(scorer)
@@ -632,7 +663,7 @@ async def scored_handler(message: Message):
         team_result = cursor.fetchone()
 
         if not team_result:
-            await message.answer(f"{scorer} не играл в матче.")
+            await bot.send_message(message.from_user.id, f"{scorer} не играл в матче.")
             return
 
         team = team_result[0]
@@ -653,7 +684,7 @@ async def scored_handler(message: Message):
     expected_goals = match_data[0] + match_data[1]
 
     if added_goals != expected_goals:
-        await message.answer(
+        await bot.send_message(message.from_user.id, 
             f"⚠️ Несовпадение!\n"
             f"Счет матча: {expected_goals} голов\n"
             f"Внесено голов: {added_goals}"
@@ -685,18 +716,18 @@ async def scored_handler(message: Message):
     current_green_team = []
     players_for_game = []
 
-    await message.answer(f"⚽ Добавлено голов: {added_goals}")
+    await bot.send_message(message.from_user.id, f"⚽ Добавлено голов: {added_goals}")
 
 
-# implementation of the player stats command
+# implementation of the player /STATS command
 @dp.message(Command("stats"))
 async def stats_handler(message: Message):
-
+    await safe_delete(message)
     parts = message.text.split()
 
     # проверка аргумента
     if len(parts) < 2:
-        await message.answer(
+        await bot.send_message(message.from_user.id,
             "Использование:\n/stats Фамилия"
         )
         return
@@ -707,7 +738,7 @@ async def stats_handler(message: Message):
     player_id = get_player_id(player_name)
 
     if player_id is None:
-        await message.answer("Игрок не найден.")
+        await bot.send_message(message.from_user.id, "Игрок не найден.")
         return
 
     # =========================
@@ -794,12 +825,15 @@ async def stats_handler(message: Message):
         f"🤝 Ничьих: {draws}"
     )
 
-    await message.answer(text)
+    await bot.send_message(message.from_user.id, text)
 
 # implementaion of the /oldmatch command
 @dp.message(Command("oldmatch"))
 async def newmatch_handler(message: Message):
+    if not is_admin(message.from_user.id):
+        return
 
+    await safe_delete(message)
     # деактивируем прошлые матчи
     cursor.execute("""
     UPDATE matches
@@ -825,18 +859,21 @@ async def newmatch_handler(message: Message):
 
     match_id = cursor.lastrowid
 
-    await message.answer(
+    await bot.send_message(message.from_user.id, 
         f"Создан матч #{match_id}"
     )
 
-# implementation of the /add command
+# implementation of the /ADD command for old matches
 @dp.message(Command("add"))
 async def add_player_handler(message: Message):
+    await safe_delete(message)
+    if not is_admin(message.from_user.id):
+        return
 
     match_id = get_active_match_id()
 
     if match_id is None:
-        await message.answer(
+        await bot.send_message(message.from_user.id,
             "Нет активного матча.\nСначала создайте матч."
         )
         return
@@ -844,7 +881,7 @@ async def add_player_handler(message: Message):
     parts = message.text.split()
 
     if len(parts) < 4:
-        await message.answer(
+        await bot.send_message(message.from_user.id,
             "Использование:\n/add red Murzinov Novikov"
         )
         return
@@ -852,7 +889,7 @@ async def add_player_handler(message: Message):
     team = parts[1].lower()
 
     if team not in ["red", "green"]:
-        await message.answer(
+        await bot.send_message(message.from_user.id,
             "Команда должна быть red или green"
         )
         return
@@ -900,17 +937,17 @@ async def add_player_handler(message: Message):
     conn.commit()
 
     if added_players:
-        await message.answer(
+        await bot.send_message(message.from_user.id,
             f"Добавлены в {team}:\n" +
             "\n".join(added_players)
         )
     else:
-        await message.answer("Никто не был добавлен.")
+        await bot.send_message(message.from_user.id, "Никто не был добавлен.")
 
 # implementation of RATINGS command to see list of ratings
 @dp.message(Command("ratings"))
 async def ratings_handler(message: Message):
-
+    await safe_delete(message)
     cursor.execute("""
     SELECT name, rating
     FROM players
@@ -924,18 +961,25 @@ async def ratings_handler(message: Message):
     for i, (name, rating) in enumerate(players, start=1):
         text += f"{i}. {name} — {rating}\n"
 
-    await message.answer(text)
+    await bot.send_message(message.from_user.id, text)
 
 # implementation of the SET RATING command
 @dp.message(Command("setrating"))
 async def setrating_handler(message: Message):
+    await safe_delete(message)
+    if not is_admin(message.from_user.id):
+        return
+    
+    try:
+        await message.delete()
+    except TelegramBadRequest:
+        pass
 
     parts = message.text.split()
 
     if len(parts) != 3:
-        await message.answer(
-            "Использование:\n/setrating Murzinov 8"
-        )
+        await bot.send_message (message.from_user.id, 
+            "Использование:\n/setrating Murzinov 8")
         return
 
     player_name = parts[1].title().strip()
@@ -943,7 +987,7 @@ async def setrating_handler(message: Message):
     try:
         new_rating = int(parts[2])
     except ValueError:
-        await message.answer("Рейтинг должен быть числом.")
+        await bot.send_message(message.from_user.id, "Рейтинг должен быть числом.")
         return
 
     cursor.execute("""
@@ -955,10 +999,10 @@ async def setrating_handler(message: Message):
     conn.commit()
 
     if cursor.rowcount == 0:
-        await message.answer("Игрок не найден.")
+        await bot.send_message(message.from_user.id, "Игрок не найден.")
         return
 
-    await message.answer(
+    await bot.send_message(message.from_user.id,
         f"Рейтинг {player_name} изменен на {new_rating}"
     )
 
@@ -966,10 +1010,14 @@ async def setrating_handler(message: Message):
 @dp.message(Command("newplayer"))
 async def newplayer_handler(message: Message):
 
+    await safe_delete(message)
+    if not is_admin(message.from_user.id):
+        return
+    
     parts = message.text.split()
 
     if len(parts) < 2:
-        await message.answer(
+        await bot.send_message(message.from_user.id,
             "Использование:\n/newplayer Фамилия"
         )
         return
@@ -986,7 +1034,7 @@ async def newplayer_handler(message: Message):
     existing_player = cursor.fetchone()
 
     if existing_player:
-        await message.answer(
+        await bot.send_message(message.from_user.id,
             f"{player_name} уже существует."
         )
         return
@@ -1002,14 +1050,14 @@ async def newplayer_handler(message: Message):
     # добавляем в список players в памяти
     players.append(player_name)
 
-    await message.answer(
+    await bot.send_message(message.from_user.id, 
         f"✅ Игрок {player_name} создан."
     )
 
 # implementation of the /REGISTER command
 @dp.message(Command("register"))
 async def register_handler(message: Message):
-
+    
     parts = message.text.split()
 
     if len(parts) < 2:
