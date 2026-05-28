@@ -14,10 +14,16 @@ load_dotenv()
 bot = Bot(token=os.getenv("BOT_TOKEN"))
 dp = Dispatcher()
 
+
+DB_PATH = "data/football.db"
+os.makedirs("data", exist_ok=True)
 conn = sqlite3.connect(
-    "football.db",
-    check_same_thread=False)
+    DB_PATH,
+    check_same_thread=False
+)
+
 cursor = conn.cursor()
+
 current_match_id = None # neded for database
 current_red_team = []
 current_green_team = []
@@ -42,7 +48,10 @@ players = [
     "Мурзинов",
     "Букин",
     "Сидоров",
-    "Заика"
+    "Заика", 
+    "Спиридонов",
+    "Малых",
+    "Степанов"
     ]
 
 player_ratings = {
@@ -64,7 +73,10 @@ player_ratings = {
     "Мурзинов": 7,
     "Букин": 2,
     "Заика": 2,
-    "Сидоров": 1
+    "Сидоров": 1,
+    "Спиридонов": 0,
+    "Малых": 1, 
+    "Степанов": 1
 }
 
 telegram_usernames = {
@@ -951,6 +963,102 @@ async def setrating_handler(message: Message):
         f"Рейтинг {player_name} изменен на {new_rating}"
     )
 
+# implementation of the /NEWPLAYER command
+@dp.message(Command("newplayer"))
+async def newplayer_handler(message: Message):
+
+    parts = message.text.split()
+
+    if len(parts) < 2:
+        await message.answer(
+            "Использование:\n/newplayer Фамилия"
+        )
+        return
+
+    player_name = parts[1]
+
+    # проверяем существует ли уже игрок
+    cursor.execute("""
+    SELECT *
+    FROM players
+    WHERE name = ?
+    """, (player_name,))
+
+    existing_player = cursor.fetchone()
+
+    if existing_player:
+        await message.answer(
+            f"{player_name} уже существует."
+        )
+        return
+
+    # создаем игрока
+    cursor.execute("""
+    INSERT INTO players (name, rating)
+    VALUES (?, ?)
+    """, (player_name, 0))
+
+    conn.commit()
+
+    # добавляем в список players в памяти
+    players.append(player_name)
+
+    await message.answer(
+        f"✅ Игрок {player_name} создан."
+    )
+
+# implementation of the /REGISTER command
+@dp.message(Command("register"))
+async def register_handler(message: Message):
+
+    parts = message.text.split()
+
+    if len(parts) < 2:
+        await message.answer(
+            "Использование:\n/register Фамилия"
+        )
+        return
+
+    player_name = parts[1]
+
+    telegram_id = message.from_user.id
+
+    # проверяем существует ли игрок
+    cursor.execute("""
+    SELECT id, telegram_id
+    FROM players
+    WHERE name = ?
+    """, (player_name,))
+
+    player = cursor.fetchone()
+
+    if not player:
+        await message.answer(
+            "Игрок не найден.\nОбратитесь к администратору."
+        )
+        return
+
+    player_id, existing_telegram_id = player
+
+    # проверяем зарегистрирован ли уже
+    if existing_telegram_id is not None:
+        await message.answer(
+            "Этот игрок уже зарегистрирован."
+        )
+        return
+
+    # привязываем telegram_id
+    cursor.execute("""
+    UPDATE players
+    SET telegram_id = ?
+    WHERE id = ?
+    """, (telegram_id, player_id))
+
+    conn.commit()
+
+    await message.answer(
+        f"✅ {player_name} успешно зарегистрирован."
+    )
 
 async def main():
     try:
