@@ -24,43 +24,47 @@ current_green_team = []
 
 # all availiable players
 players = [
-    "Ayrapetian", 
-    "Baburov",
-    "Novikov", 
-    "Biriukov", 
-    "Tiupakov",
-    "Komnatniy",
-    "Strizhov",
-    "Pochepets",
-    "Kolesnikov",
-    "Chechin",
-    "Zhesterov",
-    "Selivanov",
-    "Kostik",
-    "Slinko",
-    "Kuznetsov",
-    "Murzinov",
-    "Bukin",]
+    "Айрапетян", 
+    "Бабуров",
+    "Новиков", 
+    "Бирюков", 
+    "Тюпаков",
+    "Комнатный",
+    "Стрижов",
+    "Почепец",
+    "Колесников",
+    "Чечин",
+    "Жестеров",
+    "Селиванов",
+    "Костик",
+    "Слинько",
+    "Кузнецов",
+    "Мурзинов",
+    "Букин",
+    "Сидоров",
+    "Заика"
+    ]
 
 player_ratings = {
-    "Ayrapetian": 5,
-    "Baburov": 1,
-    "Novikov": 4,
-    "Biriukov": 3,
-    "Tiupakov": 4,
-    "Komnatniy": 5,
-    "Strizhov": 3,
-    "Pochepets": 4,
-    "Kolesnikov": 5,
-    "Chechin": 2,
-    "Zhesterov": 1,
-    "Selivanov": 3,
-    "Kostik": 1,
-    "Slinko": 0,
-    "Kuznetsov": 0,
-    "Murzinov": 7,
-    "Bukin": 2,
-    "Zaika": 2,
+    "Айрапетян": 5,
+    "Бабуров": 1,
+    "Новиков": 4,
+    "Бирюков": 3,
+    "Тюпаков": 4,
+    "Комнатный": 5,
+    "Стрижов": 3,
+    "Почепец": 4,
+    "Колесников": 5,
+    "Чечин": 2,
+    "Жестеров": 1,
+    "Селиванов": 3,
+    "Костик": 1,
+    "Слинько": 0,
+    "Кузнецов": 0,
+    "Мурзинов": 7,
+    "Букин": 2,
+    "Заика": 2,
+    "Сидоров": 1
 }
 
 telegram_usernames = {
@@ -163,14 +167,51 @@ try:
 except:
     pass
 
+# moving player ratings to db
+try:
+    cursor.execute("""
+    ALTER TABLE players
+    ADD COLUMN rating INTEGER DEFAULT 0
+    """)
+except:
+    pass
+
 conn.commit()
 
-# helper function for database to add player
+# helper function for DB to add player
 for player in players:
     cursor.execute(
         "INSERT OR IGNORE INTO players (name) VALUES (?)",
         (player,))
 conn.commit()
+
+# moving rating to DB
+for player_name, rating in player_ratings.items():
+
+    cursor.execute("""
+    UPDATE players
+    SET rating = ?
+    WHERE name = ?
+    """, (rating, player_name))
+
+conn.commit()
+
+# helper to get ratings from DB
+def get_player_rating(name):
+
+    cursor.execute("""
+    SELECT rating
+    FROM players
+    WHERE name = ?
+    """, (name,))
+
+    result = cursor.fetchone()
+
+    if result:
+        return result[0]
+
+    return 0                    
+
 
 MIN_PLAYERS = 2 # CHANGE LATER TO NORMAL NUMBER
 MAX_PLAYERS = 10 # CHANGE LATER TO NORMAL NUMBER
@@ -376,7 +417,7 @@ async def teams_handler(message: Message):
 
     sorted_players = sorted(
         shuffled_players,
-        key=lambda player: player_ratings.get(player, 0),
+        key=lambda player: get_player_rating(player),
         reverse=True
     )
 
@@ -853,6 +894,63 @@ async def add_player_handler(message: Message):
         )
     else:
         await message.answer("Никто не был добавлен.")
+
+# implementation of RATINGS command to see list of ratings
+@dp.message(Command("ratings"))
+async def ratings_handler(message: Message):
+
+    cursor.execute("""
+    SELECT name, rating
+    FROM players
+    ORDER BY rating DESC
+    """)
+
+    players = cursor.fetchall()
+
+    text = "🏆 Рейтинги игроков:\n\n"
+
+    for i, (name, rating) in enumerate(players, start=1):
+        text += f"{i}. {name} — {rating}\n"
+
+    await message.answer(text)
+
+# implementation of the SET RATING command
+
+@dp.message(Command("setrating"))
+async def setrating_handler(message: Message):
+
+    parts = message.text.split()
+
+    if len(parts) != 3:
+        await message.answer(
+            "Использование:\n/setrating Murzinov 8"
+        )
+        return
+
+    player_name = parts[1]
+
+    try:
+        new_rating = int(parts[2])
+    except ValueError:
+        await message.answer("Рейтинг должен быть числом.")
+        return
+
+    cursor.execute("""
+    UPDATE players
+    SET rating = ?
+    WHERE name = ?
+    """, (new_rating, player_name))
+
+    conn.commit()
+
+    if cursor.rowcount == 0:
+        await message.answer("Игрок не найден.")
+        return
+
+    await message.answer(
+        f"Рейтинг {player_name} изменен на {new_rating}"
+    )
+
 
 async def main():
     try:
