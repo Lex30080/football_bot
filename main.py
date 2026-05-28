@@ -294,7 +294,7 @@ async def join_handler(message: Message):
         return 
    
    parts = message.text.split()
-   name = parts[1]
+   name = parts[1].strip().title()
    
    if name not in players_for_game:
        players_for_game.append(name)
@@ -333,7 +333,7 @@ async def leave_handler(message: Message):
         await message.answer("Сейчас нет активной игры.")
         return
     parts = message.text.split()
-    name = parts[1]
+    name = parts[1].strip().title()
     if name in players_for_game:
         players_for_game.remove(name)
         status = get_game_status()
@@ -701,7 +701,7 @@ async def stats_handler(message: Message):
         )
         return
 
-    player_name = parts[1]
+    player_name = parts[1].strip().title()
 
     # получаем player_id
     player_id = get_player_id(player_name)
@@ -927,7 +927,6 @@ async def ratings_handler(message: Message):
     await message.answer(text)
 
 # implementation of the SET RATING command
-
 @dp.message(Command("setrating"))
 async def setrating_handler(message: Message):
 
@@ -939,7 +938,7 @@ async def setrating_handler(message: Message):
         )
         return
 
-    player_name = parts[1]
+    player_name = parts[1].title().strip()
 
     try:
         new_rating = int(parts[2])
@@ -975,7 +974,7 @@ async def newplayer_handler(message: Message):
         )
         return
 
-    player_name = parts[1]
+    player_name = parts[1].title().strip()
 
     # проверяем существует ли уже игрок
     cursor.execute("""
@@ -1019,7 +1018,7 @@ async def register_handler(message: Message):
         )
         return
 
-    player_name = parts[1]
+    player_name = parts[1].title().strip()
 
     telegram_id = message.from_user.id
 
