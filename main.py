@@ -3,17 +3,16 @@ import os
 import random
 import sqlite3
 
-from aiogram import Bot, Dispatcher
+
 from aiogram.filters import CommandStart
 from aiogram.types import Message, PollAnswer
-from dotenv import load_dotenv
+
 from aiogram.filters import Command
 from aiogram.exceptions import TelegramBadRequest
+from app.bot import bot, dp 
 
-load_dotenv()
 
-bot = Bot(token=os.getenv("BOT_TOKEN"))
-dp = Dispatcher()
+
 
 
 DB_PATH = "data/football.db"
@@ -1508,7 +1507,7 @@ async def main():
     finally:
         conn.close()
         print("Database closed")
-пум пум
+
 
 if __name__ == "__main__":
     asyncio.run(main())
