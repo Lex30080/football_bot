@@ -1508,6 +1508,7 @@ async def main():
     finally:
         conn.close()
         print("Database closed")
+пум пум
 
 if __name__ == "__main__":
     asyncio.run(main())
