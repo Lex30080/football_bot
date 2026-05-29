@@ -4,6 +4,7 @@ import asyncio
 import app.handlers.game_handlers
 import app.handlers.player_handlers
 import app.handlers.historic_match_handlers
+import app.handlers.stats_handlers
 
 from aiogram.filters import CommandStart
 from aiogram.types import Message

@@ -370,132 +370,99 @@ async def removeplayer_handler(message: Message):
 @dp.message(Command("matchdetails"))
 async def matchdetails_handler(message: Message):
 
-    await safe_delete(message)
-
     parts = message.text.split()
 
-    # если id не указан — берем активный матч
-    if len(parts) == 1:
+    if len(parts) < 2:
+        await message.answer(
+            "Использование:\n/matchdetails <match_id>"
+        )
+        return
 
-        match_id = get_active_match_id()
+    try:
+        match_id = int(parts[1])
 
-        if match_id is None:
-            await bot.send_message(
-                message.from_user.id,
-                "Нет активного матча."
-            )
-            return
+    except ValueError:
+        await message.answer("ID матча должен быть числом.")
+        return
 
-    else:
-        try:
-            match_id = int(parts[1])
-        except ValueError:
-            await bot.send_message(
-                message.from_user.id,
-                "Использование:\n/matchdetails\n/matchdetails 15"
-            )
-            return
-
-    # получаем информацию о матче
+    # матч
     cursor.execute("""
-    SELECT match_date,
-           red_score,
-           green_score,
-           winner,
-           status
+    SELECT
+        id,
+        match_date,
+        red_score,
+        green_score,
+        winner
     FROM matches
     WHERE id = ?
     """, (match_id,))
 
-    match = cursor.fetchone()
+    match_data = cursor.fetchone()
 
-    if not match:
-        await bot.send_message(
-            message.from_user.id,
-            "Матч не найден."
-        )
+    if not match_data:
+        await message.answer("Матч не найден.")
         return
 
-    match_date, red_score, green_score, winner, status = match
-
-    # получаем составы
+    # игроки матча
     cursor.execute("""
-    SELECT p.name, mp.team
+    SELECT
+        p.name,
+        mp.team
     FROM match_players mp
     JOIN players p
-        ON p.id = mp.player_id
+        ON mp.player_id = p.id
     WHERE mp.match_id = ?
-    ORDER BY mp.team, p.name
     """, (match_id,))
 
     players_data = cursor.fetchall()
 
-    red_team = []
-    green_team = []
-
-    for player_name, team in players_data:
-
-        if team == "red":
-            red_team.append(player_name)
-        else:
-            green_team.append(player_name)
-
-    # получаем голы
+    # голы
     cursor.execute("""
-    SELECT p.name, COUNT(*)
+    SELECT
+        p.name,
+        COUNT(g.id)
     FROM goals g
     JOIN players p
-        ON p.id = g.scorer_id
+        ON g.scorer_id = p.id
     WHERE g.match_id = ?
     GROUP BY p.name
-    ORDER BY COUNT(*) DESC
     """, (match_id,))
 
     goals_data = cursor.fetchall()
 
-    # winner text
-    if winner == "red":
-        winner_text = "🔴 Красные"
-    elif winner == "green":
-        winner_text = "🟢 Зеленые"
-    elif winner == "draw":
-        winner_text = "🤝 Ничья"
-    else:
-        winner_text = "—"
+    # словарь голов
+    goals_dict = {}
+
+    for name, goals in goals_data:
+        goals_dict[name] = goals
+
+    red_team = []
+    green_team = []
+
+    for name, team in players_data:
+
+        goals = goals_dict.get(name, 0)
+
+        ball_icons = " ⚽" * goals if goals > 0 else ""
+
+        player_line = f"• {name}{ball_icons}"
+
+        if team == "red":
+            red_team.append(player_line)
+
+        else:
+            green_team.append(player_line)
 
     text = (
-        f"📋 Матч #{match_id}\n\n"
-        f"📅 {match_date}\n"
-        f"📌 Статус: {status}\n\n"
-        f"🔴 {red_score} : {green_score} 🟢\n"
-        f"🏆 Победитель: {winner_text}\n\n"
+        f"🏆 Матч #{match_data[0]}\n"
+        f"📅 {match_data[1]}\n\n"
+        f"🔴 {match_data[2]} - {match_data[3]} 🟢\n\n"
     )
 
     text += "🔴 Красные:\n"
+    text += "\n".join(red_team)
 
-    if red_team:
-        for player in red_team:
-            text += f"• {player}\n"
-    else:
-        text += "—\n"
+    text += "\n\n🟢 Зеленые:\n"
+    text += "\n".join(green_team)
 
-    text += "\n🟢 Зеленые:\n"
-
-    if green_team:
-        for player in green_team:
-            text += f"• {player}\n"
-    else:
-        text += "—\n"
-
-    text += "\n⚽ Голы:\n"
-
-    if goals_data:
-        for scorer, goals_count in goals_data:
-            text += f"• {scorer} — {goals_count}\n"
-    else:
-        text += "Голов пока нет."
-
-    await bot.send_message(
-        message.from_user.id,
-        text
-    )
+    await message.answer(text)
