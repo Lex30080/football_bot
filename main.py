@@ -1,12 +1,9 @@
 import asyncio
-import os
 import random
-import sqlite3
-
 
 from aiogram.filters import CommandStart
 from aiogram.types import Message, PollAnswer
-
+from app.database.db import conn, cursor
 from aiogram.filters import Command
 from aiogram.exceptions import TelegramBadRequest
 from app.bot import bot, dp 
@@ -15,14 +12,7 @@ from app.bot import bot, dp
 
 
 
-DB_PATH = "data/football.db"
-os.makedirs("data", exist_ok=True)
-conn = sqlite3.connect(
-    DB_PATH,
-    check_same_thread=False
-)
 
-cursor = conn.cursor()
 
 current_match_id = None # neded for database
 current_red_team = []
