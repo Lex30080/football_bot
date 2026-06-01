@@ -1,2 +1,2 @@
 football_bot 
-my first pet-project to learn programming stuffс
+my first pet-project to learn programming stuff
