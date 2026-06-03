@@ -1,468 +1,338 @@
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+import re
+
+from app.bot import dp
 from app.database.db import conn, cursor
-from aiogram.exceptions import TelegramBadRequest  
-
-from app.bot import dp, bot
-from app.state.game_state import *
-from app.utils.helpers import (
-    is_admin,
-    get_player_id,
-    get_active_match_id,
-    get_player_rating,
-    safe_delete,
-    get_game_status,
-    format_lineup
-)
-from app.data import players, player_ratings, telegram_usernames
-from app.config import ADMINS
+from app.data import players
 
 
-# implementaion of the /oldmatch command
-@dp.message(Command("oldmatch"))
-async def newmatch_handler(message: Message):
-    if not is_admin(message.from_user.id):
+# =========================
+# STATES
+# =========================
+class HistoricMatchFSM(StatesGroup):
+    date = State()
+    red_team = State()
+    green_team = State()
+    goals = State()
+
+
+# =========================
+# UTILS
+# =========================
+DATE_REGEX = r"^\d{2}\.\d{2}\.\d{4}$"
+
+def is_valid_date(text: str) -> bool:
+    return bool(re.match(DATE_REGEX, text.strip()))
+
+
+def calc_score(goals, red, green):
+    r = sum(g["goals"] for g in goals if g["scorer"] in red)
+    g = sum(g["goals"] for g in goals if g["scorer"] in green)
+
+    if r > g:
+        return r, g, "red"
+    if g > r:
+        return r, g, "green"
+    return r, g, "draw"
+
+
+# =========================
+# KEYBOARDS
+# =========================
+def build_red_kb(selected):
+    kb = InlineKeyboardBuilder()
+
+    for p in players:
+        text = f"🔴 {p}" if p in selected else f"⚪ {p}"
+        kb.button(text=text, callback_data=f"red:{p}")
+
+    kb.button(text="➡️ Далее", callback_data="red_done")
+    kb.adjust(2)
+    return kb.as_markup()
+
+
+def build_green_kb(selected, blocked):
+    kb = InlineKeyboardBuilder()
+
+    for p in players:
+        if p in blocked:
+            continue
+
+        text = f"🟢 {p}" if p in selected else f"⚪ {p}"
+        kb.button(text=text, callback_data=f"green:{p}")
+
+    kb.button(text="➡️ Далее", callback_data="green_done")
+    kb.adjust(2)
+    return kb.as_markup()
+
+
+# =========================
+# START
+# =========================
+@dp.message(Command("historic"))
+async def historic_start(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("📅 Введите дату (ДД.ММ.ГГГГ):")
+    await state.set_state(HistoricMatchFSM.date)
+
+
+# =========================
+# DATE
+# =========================
+@dp.message(HistoricMatchFSM.date)
+async def date_step(message: Message, state: FSMContext):
+
+    if not is_valid_date(message.text):
+        await message.answer("❌ Формат: ДД.ММ.ГГГГ")
         return
 
-    await safe_delete(message)
-    # деактивируем прошлые матчи
-    cursor.execute("""
-    UPDATE matches
-    SET is_active = 0
-    WHERE is_active = 1
-    """)
-
-    # создаем новый матч
-    cursor.execute("""
-    INSERT INTO matches (
-        match_date,
-        is_active,
-        status
+    await state.update_data(
+        match_date=message.text.strip(),
+        red_team=[],
+        green_team=[],
+        goals=[]
     )
-    VALUES (
-        DATETIME('now'),
-        1,
-        'active'
-    )
-    """)
 
-    conn.commit()
+    await message.answer(
+        "🔴 Выберите КРАСНЫХ:",
+        reply_markup=build_red_kb([])
+    )
+
+    await state.set_state(HistoricMatchFSM.red_team)
+
+
+# =========================
+# RED TOGGLE
+# =========================
+@dp.callback_query(lambda c: c.data.startswith("red:"))
+async def red_pick(callback: CallbackQuery, state: FSMContext):
+
+    player = callback.data.split(":")[1]
+    data = await state.get_data()
+
+    red = data.get("red_team", [])
+
+    if player in red:
+        red.remove(player)
+    else:
+        red.append(player)
+
+    await state.update_data(red_team=red)
+
+    await callback.message.edit_reply_markup(
+        reply_markup=build_red_kb(red)
+    )
+
+    await callback.answer()
+
+
+@dp.callback_query(lambda c: c.data == "red_done")
+async def red_done(callback: CallbackQuery, state: FSMContext):
+
+    data = await state.get_data()
+
+    # ⚠️ важно: убираем старую клавиатуру
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+    await callback.message.answer(
+        f"🔴 Красные: {', '.join(data['red_team'])}\n\n"
+    )
+
+    await callback.message.answer(
+        "🟢 Выберите зелёных:",
+        reply_markup=build_green_kb([], set(data["red_team"]))
+    )
+
+    await state.set_state(HistoricMatchFSM.green_team)
+    await callback.answer()
+
+
+# =========================
+# GREEN TOGGLE
+# =========================
+@dp.callback_query(lambda c: c.data.startswith("green:"))
+async def green_pick(callback: CallbackQuery, state: FSMContext):
+
+    player = callback.data.split(":")[1]
+    data = await state.get_data()
+
+    green = data.get("green_team", [])
+
+    if player in green:
+        green.remove(player)
+    else:
+        green.append(player)
+
+    await state.update_data(green_team=green)
+
+    await callback.message.edit_reply_markup(
+        reply_markup=build_green_kb(green, set(data["red_team"]))
+    )
+
+    await callback.answer()
+
+def build_goals_kb(team, goals):
+    kb = InlineKeyboardBuilder()
+
+    for p in team:
+        count = goals.get(p, 0)
+        balls = "⚽" * count if count > 0 else ""
+
+        kb.button(
+            text=f"{p} {balls}",
+            callback_data=f"goal_add:{p}"
+        )
+
+    kb.button(text="🧹 Удалить последний", callback_data="goal_undo")
+    kb.button(text="🏁 Завершить", callback_data="finish")
+
+    kb.adjust(2)
+    return kb.as_markup()
+
+@dp.callback_query(lambda c: c.data == "green_done")
+async def green_done(callback: CallbackQuery, state: FSMContext):
+
+    data = await state.get_data()
+    team = data["red_team"] + data["green_team"]
+
+    await state.update_data(goals={})
+
+    await callback.message.answer(
+        "⚽ Назначение голов:\n\n"
+        "1 клик = 1 гол игроку"
+    )
+
+    await callback.message.answer(
+        "Выбирайте игроков:",
+        reply_markup=build_goals_kb(team, {})
+    )
+
+    await state.set_state(HistoricMatchFSM.goals)
+
+    await callback.answer()
+
+
+# =========================
+# GOALS
+# =========================
+@dp.callback_query(lambda c: c.data.startswith("goal_add:"))
+async def goal_add(callback: CallbackQuery, state: FSMContext):
+
+    player = callback.data.split(":")[1]
+
+    data = await state.get_data()
+    goals = data.get("goals", {})
+
+    goals[player] = goals.get(player, 0) + 1
+
+    team = data["red_team"] + data["green_team"]
+
+    await state.update_data(goals=goals)
+
+    await callback.message.edit_reply_markup(
+        reply_markup=build_goals_kb(team, goals)
+    )
+
+    await callback.answer(f"+1 {player}")
+
+@dp.callback_query(lambda c: c.data == "goal_undo")
+async def goal_undo(callback: CallbackQuery, state: FSMContext):
+
+    data = await state.get_data()
+    goals = data.get("goals", {})
+
+    if not goals:
+        await callback.answer("Нет действий для отмены")
+        return
+
+    # убираем последний добавленный гол (упрощённо)
+    last_player = list(goals.keys())[-1]
+
+    goals[last_player] -= 1
+
+    if goals[last_player] <= 0:
+        del goals[last_player]
+
+    team = data["red_team"] + data["green_team"]
+
+    await state.update_data(goals=goals)
+
+    await callback.message.edit_reply_markup(
+        reply_markup=build_goals_kb(team, goals)
+    )
+
+    await callback.answer("Отменено")
+
+# =========================
+# FINISH
+# =========================
+@dp.callback_query(lambda c: c.data == "finish")
+async def finish(callback: CallbackQuery, state: FSMContext):
+
+    data = await state.get_data()
+    goals = data.get("goals", {})
+
+    red = data["red_team"]
+    green = data["green_team"]
+
+    red_score = sum(goals.get(p, 0) for p in red)
+    green_score = sum(goals.get(p, 0) for p in green)
+
+    if red_score > green_score:
+        winner = "red"
+    elif green_score > red_score:
+        winner = "green"
+    else:
+        winner = "draw"
+
+    conn.execute("BEGIN")
+
+    cursor.execute("""
+        INSERT INTO matches (match_date, red_score, green_score, winner)
+        VALUES (?, ?, ?, ?)
+    """, (data["match_date"], red_score, green_score, winner))
 
     match_id = cursor.lastrowid
 
-    await bot.send_message(message.from_user.id, 
-        f"Создан матч #{match_id}, заполни информацию о матче"
-    )
-
-#  /ADD command for old matches
-@dp.message(Command("add"))
-async def add_player_handler(message: Message):
-    await safe_delete(message)
-    if not is_admin(message.from_user.id):
-        return
-
-    match_id = get_active_match_id()
-
-    if match_id is None:
-        await bot.send_message(message.from_user.id,
-            "Нет активного матча.\nСначала создайте матч."
-        )
-        return
-
-    parts = message.text.split()
-
-    if len(parts) < 3:
-        await bot.send_message(message.from_user.id,
-            "Использование:\n/add red Murzinov"
-        )
-        return
-
-    team = parts[1].lower()
-
-    if team not in ["red", "green"]:
-        await bot.send_message(message.from_user.id,
-            "Команда должна быть red или green"
-        )
-        return
-
-    players_to_add = [
-    player.strip().title()
-    for player in parts[2:]
-]
-
-    added_players = []
-
-    for player_name in players_to_add:
-
-        # добавляем игрока в players если его нет
+    # players
+    for p in red:
         cursor.execute("""
-        INSERT OR IGNORE INTO players (name)
-        VALUES (?)
-        """, (player_name,))
+            INSERT INTO match_players (match_id, player_id, team)
+            VALUES (?, ?, 'red')
+        """, (match_id, players.index(p) + 1))
 
-        conn.commit()
-
-        player_id = get_player_id(player_name)
-
-        # проверяем уже добавлен или нет
+    for p in green:
         cursor.execute("""
-        SELECT *
-        FROM match_players
-        WHERE match_id = ?
-        AND player_id = ?
-        """, (match_id, player_id))
+            INSERT INTO match_players (match_id, player_id, team)
+            VALUES (?, ?, 'green')
+        """, (match_id, players.index(p) + 1))
 
-        exists = cursor.fetchone()
-
-        if exists:
-            continue
-
-        cursor.execute("""
-        INSERT INTO match_players (
-            match_id,
-            player_id,
-            team
-        )
-        VALUES (?, ?, ?)
-        """, (match_id, player_id, team))
-
-        added_players.append(player_name)
+    # goals (каждый гол отдельной строкой)
+    for player, count in goals.items():
+        for _ in range(count):
+            cursor.execute("""
+                INSERT INTO goals (match_id, scorer_id, team)
+                VALUES (?, ?, ?)
+            """, (
+                match_id,
+                players.index(player) + 1,
+                "red" if player in red else "green"
+            ))
 
     conn.commit()
 
-    if added_players:
-        await bot.send_message(message.from_user.id,
-            f"Добавлены в {team}:\n" +
-            "\n".join(added_players)
-        )
-    else:
-        await bot.send_message(message.from_user.id, "Никто не был добавлен.")
+    await state.clear()
 
-
-#  /MATCHES command
-@dp.message(Command("matches"))
-async def matches_handler(message: Message):
-
-    if not is_admin(message.from_user.id):
-        return
-
-    await safe_delete(message)
-
-    parts = message.text.split()
-
-    # по умолчанию показываем 5
-    limit = 5
-    show_all = False
-
-    # если есть аргумент
-    if len(parts) > 1:
-
-        arg = parts[1].lower()
-
-        if arg == "all":
-            show_all = True
-
-        else:
-            try:
-                limit = int(arg)
-            except ValueError:
-                await bot.send_message(message.from_user.id,
-                    "Использование:\n"
-                    "/matches\n"
-                    "/matches 20\n"
-                    "/matches all"
-                )
-                return
-
-    # запрос в БД
-    if show_all:
-
-        cursor.execute("""
-        SELECT id,
-               match_date,
-               red_score,
-               green_score,
-               status
-        FROM matches
-        ORDER BY id DESC
-        """)
-
-    else:
-
-        cursor.execute("""
-        SELECT id,
-               match_date,
-               red_score,
-               green_score,
-               status
-        FROM matches
-        ORDER BY id DESC
-        LIMIT ?
-        """, (limit,))
-
-    matches = cursor.fetchall()
-
-    if not matches:
-        await bot.send_message(message.from_user.id,
-            "Матчей пока нет."
-        )
-        return
-
-    text = "📋 Матчи:\n\n"
-
-    for match in matches:
-
-        match_id = match[0]
-        match_date = match[1]
-        red_score = match[2]
-        green_score = match[3]
-        status = match[4]
-
-        text += (
-            f"#{match_id} | "
-            f"{red_score}:{green_score} | "
-            f"{status}\n"
-        )
-
-    await bot.send_message(message.from_user.id,text)
-
-# /DELETEMATCH command
-@dp.message(Command("deletematch"))
-async def deletematch_handler(message: Message):
-
-    if not is_admin(message.from_user.id):
-        return
-
-    parts = message.text.split()
-
-    if len(parts) != 2:
-        await bot.send_message(
-            message.from_user.id,
-            "Использование:\n/deletematch 15"
-        )
-        await safe_delete(message)
-        return
-
-    try:
-        match_id = int(parts[1])
-    except ValueError:
-        await bot.send_message(
-            message.from_user.id,
-            "ID матча должен быть числом."
-        )
-        await safe_delete(message)
-        return
-
-    # проверяем существует ли матч
-    cursor.execute("""
-    SELECT id
-    FROM matches
-    WHERE id = ?
-    """, (match_id,))
-
-    match = cursor.fetchone()
-
-    if not match:
-        await bot.send_message(
-            message.from_user.id,
-            "Матч не найден."
-        )
-        await safe_delete(message)
-        return
-
-    # удаляем голы
-    cursor.execute("""
-    DELETE FROM goals
-    WHERE match_id = ?
-    """, (match_id,))
-
-    # удаляем игроков матча
-    cursor.execute("""
-    DELETE FROM match_players
-    WHERE match_id = ?
-    """, (match_id,))
-
-    # удаляем матч
-    cursor.execute("""
-    DELETE FROM matches
-    WHERE id = ?
-    """, (match_id,))
-
-    conn.commit()
-
-    await bot.send_message(
-        message.from_user.id,
-        f"Матч #{match_id} удален."
+    await callback.message.delete()
+    await callback.message.answer(
+        f"✅ Матч сохранён\n\n"
+        f"🔴 {red_score} : {green_score} 🟢\n"
+        f"🏆 Победитель: {winner}"
     )
 
-    await safe_delete(message)
-
-#  /REMOVEPLAYER command
-@dp.message(Command("removeplayer"))
-async def removeplayer_handler(message: Message):
-
-    await safe_delete(message)
-
-    if not is_admin(message.from_user.id):
-        return
-
-    match_id = get_active_match_id()
-
-    if match_id is None:
-        await bot.send_message(
-            message.from_user.id,
-            "Нет активного матча."
-        )
-        return
-
-    parts = message.text.split()
-
-    if len(parts) < 2:
-        await bot.send_message(
-            message.from_user.id,
-            "Использование:\n/removeplayer Мурзинов"
-        )
-        return
-
-    player_name = parts[1].strip().title()
-
-    player_id = get_player_id(player_name)
-
-    if player_id is None:
-        await bot.send_message(
-            message.from_user.id,
-            "Игрок не найден."
-        )
-        return
-
-    cursor.execute("""
-    SELECT *
-    FROM match_players
-    WHERE match_id = ?
-    AND player_id = ?
-    """, (match_id, player_id))
-
-    exists = cursor.fetchone()
-
-    if not exists:
-        await bot.send_message(
-            message.from_user.id,
-            f"{player_name} не участвует в матче."
-        )
-        return
-
-    cursor.execute("""
-    DELETE FROM match_players
-    WHERE match_id = ?
-    AND player_id = ?
-    """, (match_id, player_id))
-
-
-
-    conn.commit()
-
-    await bot.send_message(
-        message.from_user.id,
-        f"❌ {player_name} удален из матча."
-    )
-
-#  /MATCHDETAILS command
-@dp.message(Command("matchdetails"))
-async def matchdetails_handler(message: Message):
-
-    parts = message.text.split()
-
-    if len(parts) < 2:
-        await message.answer(
-            "Использование:\n/matchdetails <match_id>"
-        )
-        return
-
-    try:
-        match_id = int(parts[1])
-
-    except ValueError:
-        await message.answer("ID матча должен быть числом.")
-        return
-
-    # матч
-    cursor.execute("""
-    SELECT
-        id,
-        match_date,
-        red_score,
-        green_score,
-        winner
-    FROM matches
-    WHERE id = ?
-    """, (match_id,))
-
-    match_data = cursor.fetchone()
-
-    if not match_data:
-        await message.answer("Матч не найден.")
-        return
-
-    # игроки матча
-    cursor.execute("""
-    SELECT
-        p.name,
-        mp.team
-    FROM match_players mp
-    JOIN players p
-        ON mp.player_id = p.id
-    WHERE mp.match_id = ?
-    """, (match_id,))
-
-    players_data = cursor.fetchall()
-
-    # голы
-    cursor.execute("""
-    SELECT
-        p.name,
-        COUNT(g.id)
-    FROM goals g
-    JOIN players p
-        ON g.scorer_id = p.id
-    WHERE g.match_id = ?
-    GROUP BY p.name
-    """, (match_id,))
-
-    goals_data = cursor.fetchall()
-
-    # словарь голов
-    goals_dict = {}
-
-    for name, goals in goals_data:
-        goals_dict[name] = goals
-
-    red_team = []
-    green_team = []
-
-    for name, team in players_data:
-
-        goals = goals_dict.get(name, 0)
-
-        ball_icons = " ⚽" * goals if goals > 0 else ""
-
-        player_line = f"• {name}{ball_icons}"
-
-        if team == "red":
-            red_team.append(player_line)
-
-        else:
-            green_team.append(player_line)
-
-    text = (
-        f"🏆 Матч #{match_data[0]}\n"
-        f"📅 {match_data[1]}\n\n"
-        f"🔴 {match_data[2]} - {match_data[3]} 🟢\n\n"
-    )
-
-    text += "🔴 Красные:\n"
-    text += "\n".join(red_team)
-
-    text += "\n\n🟢 Зеленые:\n"
-    text += "\n".join(green_team)
-
-    await message.answer(text)
+    await callback.answer()

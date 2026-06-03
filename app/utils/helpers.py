@@ -5,6 +5,7 @@ from app.state.game_state import game_state, MIN_PLAYERS, MAX_PLAYERS
 from aiogram.types import Message
 
 
+
 # helper to check if Admin
 def is_admin(user_id):
     return user_id in ADMINS
