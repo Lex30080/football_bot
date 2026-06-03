@@ -192,3 +192,75 @@ async def stats_handler(message: Message):
 
     await bot.send_message(message.from_user.id, text)
 
+from aiogram.filters import Command
+from aiogram.types import Message
+
+from app.bot import dp
+from app.database.db import cursor
+
+
+from aiogram.filters import Command
+from aiogram.types import Message
+
+from app.bot import dp
+from app.database.db import cursor
+
+
+from aiogram.filters import Command
+from aiogram.types import Message
+
+from app.bot import dp
+from app.database.db import cursor
+
+
+@dp.message(Command("matches"))
+async def list_matches(message: Message):
+
+    # -----------------------
+    # parse argument
+    # -----------------------
+    args = message.text.split()
+
+    limit = 5  # default
+
+    if len(args) > 1:
+        if args[1].isdigit():
+            limit = int(args[1])
+
+    # защита от слишком больших запросов
+    if limit > 50:
+        limit = 50
+
+    # -----------------------
+    # query DB
+    # -----------------------
+    cursor.execute("""
+        SELECT id, match_date, red_score, green_score
+        FROM matches
+        ORDER BY id DESC
+        LIMIT ?
+    """, (limit,))
+
+    rows = cursor.fetchall()
+
+    if not rows:
+        await message.answer("Матчей пока нет")
+        return
+
+    # -----------------------
+    # output
+    # -----------------------
+    text = ""
+
+    for match_id, date, red, green in rows:
+        text += f"Матч №{match_id} {date} {red}-{green}\n"
+
+    await message.answer(text)
+
+from aiogram.filters import Command
+from aiogram.types import Message
+
+from app.bot import dp
+from app.database.db import cursor
+
+
