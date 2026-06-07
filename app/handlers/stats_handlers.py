@@ -341,3 +341,203 @@ async def lastmatch_handler(message: Message):
     await message.answer(
         build_match_info(result[0])
     )
+
+
+@dp.message(Command("topmatches"))
+async def top_matches(message: Message):
+
+    # аргумент после команды
+    parts = message.text.split()
+
+    limit = 10  # по умолчанию
+
+    if len(parts) > 1:
+        if parts[1].isdigit():
+            limit = int(parts[1])
+        else:
+            await message.answer("❌ Укажи число, например: /topmatches 5")
+            return
+
+    cursor.execute("""
+        SELECT
+            p.name,
+            COUNT(mp.match_id) as matches_count
+        FROM players p
+        LEFT JOIN match_players mp ON mp.player_id = p.id
+        GROUP BY p.id
+        ORDER BY matches_count DESC
+        LIMIT ?
+    """, (limit,))
+
+    rows = cursor.fetchall()
+
+    if not rows:
+        await message.answer("Нет данных")
+        return
+
+    text = f"🏆 ТОП {limit} игроков по матчам:\n\n"
+
+    for i, (name, count) in enumerate(rows, start=1):
+        text += f"{i}. {name} — {count}\n"
+
+    await message.answer(text)
+
+def get_player_name(player_id):
+    cursor.execute("SELECT name FROM players WHERE id = ?", (player_id,))
+    row = cursor.fetchone()
+    return row[0] if row else "Неизвестный"
+
+from aiogram.filters import Command
+from aiogram.types import Message
+
+from app.bot import dp
+from app.database.db import cursor
+
+
+def get_player_name(player_id: int):
+    cursor.execute("SELECT name FROM players WHERE id = ?", (player_id,))
+    row = cursor.fetchone()
+    return row[0] if row else "Неизвестный"
+
+
+@dp.message(Command("general"))
+async def general(message: Message):
+
+    # =========================
+    # ОБЩАЯ СТАТИСТИКА
+    # =========================
+
+    cursor.execute("SELECT COUNT(*) FROM matches")
+    total_matches = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM goals")
+    total_goals = cursor.fetchone()[0]
+
+    # =========================
+    # САМЫЙ РЕЗУЛЬТАТИВНЫЙ МАТЧ
+    # =========================
+    cursor.execute("""
+        SELECT id, match_date, red_score, green_score
+        FROM matches
+        ORDER BY (red_score + green_score) DESC
+        LIMIT 1
+    """)
+    best_match = cursor.fetchone()
+
+    best_match_text = (
+        f"#{best_match[0]} {best_match[1]} {best_match[2]}-{best_match[3]}"
+        if best_match else "Нет данных"
+    )
+
+    # =========================
+    # ТОП БОМБАРДИР
+    # =========================
+    cursor.execute("""
+        SELECT scorer_id, COUNT(*) as goals_count
+        FROM goals
+        GROUP BY scorer_id
+        ORDER BY goals_count DESC
+        LIMIT 1
+    """)
+    top_scorer = cursor.fetchone()
+
+    if top_scorer:
+        top_scorer_name = get_player_name(top_scorer[0])
+        top_scorer_goals = top_scorer[1]
+        top_scorer_text = f"{top_scorer_name} — {top_scorer_goals}"
+    else:
+        top_scorer_text = "Нет данных"
+
+    # =========================
+    # ТОП ПО МАТЧАМ
+    # =========================
+    cursor.execute("""
+        SELECT player_id, COUNT(*) as matches_count
+        FROM match_players
+        GROUP BY player_id
+        ORDER BY matches_count DESC
+        LIMIT 1
+    """)
+    top_player = cursor.fetchone()
+
+    if top_player:
+        top_player_text = f"{get_player_name(top_player[0])} — {top_player[1]}"
+    else:
+        top_player_text = "Нет данных"
+
+    # =========================
+    # РЕКОРД ГОЛОВ ЗА МАТЧ
+    # =========================
+    cursor.execute("""
+        SELECT scorer_id, match_id, COUNT(*) as cnt
+        FROM goals
+        GROUP BY scorer_id, match_id
+        ORDER BY cnt DESC
+        LIMIT 1
+    """)
+    record = cursor.fetchone()
+
+    if record:
+        record_text = f"{get_player_name(record[0])} — {record[2]} (матч #{record[1]})"
+    else:
+        record_text = "Нет данных"
+
+    # =========================
+    # САМЫЙ РАЗГРОМ
+    # =========================
+    cursor.execute("""
+        SELECT id, match_date, red_score, green_score,
+               ABS(red_score - green_score) as diff
+        FROM matches
+        ORDER BY diff DESC
+        LIMIT 1
+    """)
+    blowout = cursor.fetchone()
+
+    blowout_text = (
+        f"#{blowout[0]} {blowout[1]} {blowout[2]}-{blowout[3]}"
+        if blowout else "Нет данных"
+    )
+
+    # =========================
+    # САМАЯ НИЧЬЯ
+    # =========================
+    cursor.execute("""
+        SELECT id, match_date, red_score, green_score
+        FROM matches
+        WHERE red_score = green_score
+        ORDER BY (red_score + green_score) DESC
+        LIMIT 1
+    """)
+    draw = cursor.fetchone()
+
+    draw_text = (
+        f"#{draw[0]} {draw[1]} {draw[2]}-{draw[3]}"
+        if draw else "Нет ничьих"
+    )
+
+    # =========================
+    # ОТВЕТ
+    # =========================
+    await message.answer(
+        "📊 ОБЩАЯ СТАТИСТИКА\n\n"
+        "📌 Период: с мая 2026\n\n"
+
+        f"⚽ Матчей: {total_matches}\n"
+        f"🥅 Голов: {total_goals}\n\n"
+
+        f"🏆 Самый результативный матч:\n{best_match_text}\n\n"
+
+        f"🔥 Топ бомбардир:\n{top_scorer_text}\n\n"
+
+        f"🎮 Топ по матчам:\n{top_player_text}\n\n"
+
+        f"🚀 Рекорд головза матч:\n{record_text}\n\n"
+
+        f"💥 Самый большой разгром:\n{blowout_text}\n\n"
+
+        f"🤝 Самая результативная ничья:\n{draw_text}"
+    )
+
+
+  
