@@ -192,26 +192,6 @@ async def stats_handler(message: Message):
 
     await bot.send_message(message.from_user.id, text)
 
-from aiogram.filters import Command
-from aiogram.types import Message
-
-from app.bot import dp
-from app.database.db import cursor
-
-
-from aiogram.filters import Command
-from aiogram.types import Message
-
-from app.bot import dp
-from app.database.db import cursor
-
-
-from aiogram.filters import Command
-from aiogram.types import Message
-
-from app.bot import dp
-from app.database.db import cursor
-
 
 @dp.message(Command("matches"))
 async def list_matches(message: Message):
@@ -257,10 +237,107 @@ async def list_matches(message: Message):
 
     await message.answer(text)
 
-from aiogram.filters import Command
-from aiogram.types import Message
+def build_match_info(match_id):
 
-from app.bot import dp
-from app.database.db import cursor
+    cursor.execute("""
+    SELECT match_date, red_score, green_score
+    FROM matches
+    WHERE id = ?
+    """, (match_id,))
 
+    match_data = cursor.fetchone()
 
+    if not match_data:
+        return "Матч не найден."
+
+    match_date, red_score, green_score = match_data
+
+    cursor.execute("""
+    SELECT p.name, mp.team
+    FROM match_players mp
+    JOIN players p
+        ON p.id = mp.player_id
+    WHERE mp.match_id = ?
+    """, (match_id,))
+
+    players_data = cursor.fetchall()
+
+    red_team = []
+    green_team = []
+
+    for name, team in players_data:
+        if team == "red":
+            red_team.append(name)
+        else:
+            green_team.append(name)
+
+    cursor.execute("""
+    SELECT p.name, COUNT(*)
+    FROM goals g
+    JOIN players p
+        ON p.id = g.scorer_id
+    WHERE g.match_id = ?
+    GROUP BY p.name
+    """, (match_id,))
+
+    scorers = {
+        name: goals
+        for name, goals in cursor.fetchall()
+    }
+
+    text = (
+        f"📅 {match_date}\n"
+        f"🆔 Матч #{match_id}\n\n"
+        f"🔴 {red_score} : {green_score} 🟢\n\n"
+    )
+
+    text += "🔴 Красные:\n"
+
+    for player in red_team:
+        balls = "⚽" * scorers.get(player, 0)
+        text += f"• {player} {balls}\n"
+
+    text += "\n🟢 Зеленые:\n"
+
+    for player in green_team:
+        balls = "⚽" * scorers.get(player, 0)
+        text += f"• {player} {balls}\n"
+
+    return text
+
+@dp.message(Command("matchinfo"))
+async def matchinfo_handler(message: Message):
+
+    parts = message.text.split()
+
+    if len(parts) < 2:
+        await message.answer(
+            "Использование:\n/matchinfo <id>"
+        )
+        return
+
+    match_id = int(parts[1])
+
+    await message.answer(
+        build_match_info(match_id)
+    )
+
+@dp.message(Command("lastmatch"))
+async def lastmatch_handler(message: Message):
+
+    cursor.execute("""
+    SELECT id
+    FROM matches
+    ORDER BY id DESC
+    LIMIT 1
+    """)
+
+    result = cursor.fetchone()
+
+    if not result:
+        await message.answer("Матчей пока нет.")
+        return
+
+    await message.answer(
+        build_match_info(result[0])
+    )
