@@ -429,22 +429,35 @@ async def general(message: Message):
         if best_match else "Нет данных"
     )
 
-    # =========================
-    # ТОП БОМБАРДИР
+       # =========================
+    # ТОП БОМБАРДИРЫ
     # =========================
     cursor.execute("""
-        SELECT scorer_id, COUNT(*) as goals_count
+        SELECT COUNT(*)
         FROM goals
         GROUP BY scorer_id
-        ORDER BY goals_count DESC
+        ORDER BY COUNT(*) DESC
         LIMIT 1
     """)
-    top_scorer = cursor.fetchone()
+    row = cursor.fetchone()
 
-    if top_scorer:
-        top_scorer_name = get_player_name(top_scorer[0])
-        top_scorer_goals = top_scorer[1]
-        top_scorer_text = f"{top_scorer_name} — {top_scorer_goals}"
+    if row:
+        max_goals = row[0]
+
+        cursor.execute("""
+            SELECT scorer_id, COUNT(*) as goals_count
+            FROM goals
+            GROUP BY scorer_id
+            HAVING COUNT(*) = ?
+            ORDER BY scorer_id
+        """, (max_goals,))
+
+        scorers = cursor.fetchall()
+
+        top_scorer_text = "\n".join(
+            f"{get_player_name(player_id)} — {goals_count}"
+            for player_id, goals_count in scorers
+        )
     else:
         top_scorer_text = "Нет данных"
 
@@ -452,16 +465,31 @@ async def general(message: Message):
     # ТОП ПО МАТЧАМ
     # =========================
     cursor.execute("""
-        SELECT player_id, COUNT(*) as matches_count
+        SELECT COUNT(*)
         FROM match_players
         GROUP BY player_id
-        ORDER BY matches_count DESC
+        ORDER BY COUNT(*) DESC
         LIMIT 1
     """)
-    top_player = cursor.fetchone()
+    row = cursor.fetchone()
 
-    if top_player:
-        top_player_text = f"{get_player_name(top_player[0])} — {top_player[1]}"
+    if row:
+        max_matches = row[0]
+
+        cursor.execute("""
+            SELECT player_id, COUNT(*) as matches_count
+            FROM match_players
+            GROUP BY player_id
+            HAVING COUNT(*) = ?
+            ORDER BY player_id
+        """, (max_matches,))
+
+        players_top = cursor.fetchall()
+
+        top_player_text = "\n".join(
+            f"{get_player_name(player_id)} — {matches_count}"
+            for player_id, matches_count in players_top
+        )
     else:
         top_player_text = "Нет данных"
 
@@ -469,18 +497,49 @@ async def general(message: Message):
     # РЕКОРД ГОЛОВ ЗА МАТЧ
     # =========================
     cursor.execute("""
-        SELECT scorer_id, match_id, COUNT(*) as cnt
+        SELECT COUNT(*) as cnt
         FROM goals
         GROUP BY scorer_id, match_id
         ORDER BY cnt DESC
         LIMIT 1
     """)
-    record = cursor.fetchone()
+    row = cursor.fetchone()
 
-    if record:
-        record_text = f"{get_player_name(record[0])} — {record[2]} (матч #{record[1]})"
+    if row:
+        max_record = row[0]
+
+        cursor.execute("""
+            SELECT scorer_id, match_id, COUNT(*) as cnt
+            FROM goals
+            GROUP BY scorer_id, match_id
+            HAVING COUNT(*) = ?
+            ORDER BY match_id
+        """, (max_record,))
+
+        records = cursor.fetchall()
+
+        record_text = "\n".join(
+            f"{get_player_name(player_id)} — {cnt} (матч #{match_id})"
+            for player_id, match_id, cnt in records
+        )
     else:
         record_text = "Нет данных"
+
+
+    # =========================
+    # СРЕДНЯЯ РЕЗУЛЬТАТИВНОСТЬ
+    # =========================
+    cursor.execute("""
+        SELECT AVG(red_score + green_score)
+        FROM matches
+    """)
+
+    avg_goals = cursor.fetchone()[0]
+
+    if avg_goals is None:
+        avg_goals_text = "Нет данных"
+    else:
+        avg_goals_text = f"{avg_goals:.2f}"
 
     # =========================
     # САМЫЙ РАЗГРОМ
@@ -525,14 +584,16 @@ async def general(message: Message):
 
         f"⚽ Матчей: {total_matches}\n"
         f"🥅 Голов: {total_goals}\n\n"
+        f"📈 Средняя результативность: {avg_goals_text} гола за матч\n\n"
 
-        f"🏆 Самый результативный матч:\n{best_match_text}\n\n"
 
         f"🔥 Топ бомбардир:\n{top_scorer_text}\n\n"
 
         f"🎮 Топ по матчам:\n{top_player_text}\n\n"
 
-        f"🚀 Рекорд головза матч:\n{record_text}\n\n"
+        f"🚀 Рекорд голов за матч:\n{record_text}\n\n"
+        
+        f"🏆 Самый результативный матч:\n{best_match_text}\n\n"
 
         f"💥 Самый большой разгром:\n{blowout_text}\n\n"
 
