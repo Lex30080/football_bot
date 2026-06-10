@@ -198,13 +198,28 @@ def build_goals_kb(team, goals):
 async def green_done(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
+
+    green = data["green_team"]
+
+    # убираем клавиатуру выбора зеленых
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+    # показываем состав зеленых
+    await callback.message.answer(
+        f"🟢 Зеленые: {', '.join(green)}"
+    )
+
     team = data["red_team"] + data["green_team"]
 
-    await state.update_data(goals={})
+    await state.update_data(
+        goals={},
+        goal_history=[]
+    )
 
     await callback.message.answer(
-        "⚽ Назначение голов:\n\n"
-        "1 клик = 1 гол игроку"
+        "⚽ Назначение голов:\n"
+        "1 клик = 1 гол игроку\n"
+        "Для исправления используйте кнопку «Удалить последний»"
     )
 
     await callback.message.answer(
@@ -226,13 +241,20 @@ async def goal_add(callback: CallbackQuery, state: FSMContext):
     player = callback.data.split(":")[1]
 
     data = await state.get_data()
+
     goals = data.get("goals", {})
+    history = data.get("goal_history", [])
 
     goals[player] = goals.get(player, 0) + 1
 
+    history.append(player)
+
     team = data["red_team"] + data["green_team"]
 
-    await state.update_data(goals=goals)
+    await state.update_data(
+        goals=goals,
+        goal_history=history
+    )
 
     await callback.message.edit_reply_markup(
         reply_markup=build_goals_kb(team, goals)
@@ -244,14 +266,15 @@ async def goal_add(callback: CallbackQuery, state: FSMContext):
 async def goal_undo(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
-    goals = data.get("goals", {})
 
-    if not goals:
+    goals = data.get("goals", {})
+    history = data.get("goal_history", [])
+
+    if not history:
         await callback.answer("Нет действий для отмены")
         return
 
-    # убираем последний добавленный гол (упрощённо)
-    last_player = list(goals.keys())[-1]
+    last_player = history.pop()
 
     goals[last_player] -= 1
 
@@ -260,13 +283,16 @@ async def goal_undo(callback: CallbackQuery, state: FSMContext):
 
     team = data["red_team"] + data["green_team"]
 
-    await state.update_data(goals=goals)
+    await state.update_data(
+        goals=goals,
+        goal_history=history
+    )
 
     await callback.message.edit_reply_markup(
         reply_markup=build_goals_kb(team, goals)
     )
 
-    await callback.answer("Отменено")
+    await callback.answer(f"Отменён гол: {last_player}")
 
 # =========================
 # FINISH
@@ -336,3 +362,42 @@ async def finish(callback: CallbackQuery, state: FSMContext):
     )
 
     await callback.answer()
+
+# =========================
+# Удалить матч из базы данных
+# =========================
+@dp.message(Command("deletematch"))
+async def delete_match(message: Message):
+
+    parts = message.text.split()
+
+    if len(parts) != 2:
+        await message.answer("Использование: /deletematch ID")
+        return
+
+    try:
+        match_id = int(parts[1])
+    except ValueError:
+        await message.answer("ID должен быть числом")
+        return
+
+    conn.execute("BEGIN")
+
+    cursor.execute(
+        "DELETE FROM goals WHERE match_id = ?",
+        (match_id,)
+    )
+
+    cursor.execute(
+        "DELETE FROM match_players WHERE match_id = ?",
+        (match_id,)
+    )
+
+    cursor.execute(
+        "DELETE FROM matches WHERE id = ?",
+        (match_id,)
+    )
+
+    conn.commit()
+
+    await message.answer(f"🗑 Матч #{match_id} удалён")
