@@ -6,7 +6,8 @@ from aiogram.types import Message
 from app.bot import bot, dp
 from app.database.db import conn
 from app.database.init_db import init_database
-
+from app.database.init_db import seed_database
+from app.database.init_db import is_db_empty
 
 def setup_handlers():
     import app.handlers.game_handlers
@@ -24,6 +25,8 @@ async def start_handler(message: Message):
 async def main():
     setup_handlers()
     init_database()
+    if is_db_empty():
+        seed_database()
 
     print("Bot started")
 

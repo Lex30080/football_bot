@@ -3,22 +3,12 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-
+from app.state.historic_match_fsm import HistoricMatchFSM
 import re
 
 from app.bot import dp
 from app.database.db import conn, cursor
 from app.data import players
-
-
-# =========================
-# STATES
-# =========================
-class HistoricMatchFSM(StatesGroup):
-    date = State()
-    red_team = State()
-    green_team = State()
-    goals = State()
 
 
 # =========================

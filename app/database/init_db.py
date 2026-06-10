@@ -2,12 +2,12 @@ from app.database.db import conn, cursor
 from app.data import players, player_ratings
 
 def init_database():
-    # creating tables in the database
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS players (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         telegram_id INTEGER UNIQUE,
-        name TEXT UNIQUE
+        name TEXT UNIQUE,
+        rating INTEGER DEFAULT 0
     )
     """)
 
@@ -18,7 +18,8 @@ def init_database():
         red_score INTEGER DEFAULT 0,
         green_score INTEGER DEFAULT 0,
         winner TEXT,
-        status TEXT DEFAULT 'active'       
+        status TEXT DEFAULT 'active',
+        is_active INTEGER DEFAULT 0
     )
     """)
 
@@ -39,40 +40,25 @@ def init_database():
     )
     """)
 
-    # need this because I need to save match Id in database not in memory
-    try:
-        cursor.execute("""
-        ALTER TABLE matches
-        ADD COLUMN is_active INTEGER DEFAULT 0
-        """)
-    except:
-        pass
-
-    # moving player ratings to db
-    try:
-        cursor.execute("""
-        ALTER TABLE players
-        ADD COLUMN rating INTEGER DEFAULT 0
-        """)
-    except:
-        pass
-
     conn.commit()
 
-    # helper function for DB to add player
+
+def seed_database():
     for player in players:
         cursor.execute(
             "INSERT OR IGNORE INTO players (name) VALUES (?)",
-            (player,))
-    conn.commit()
+            (player,)
+        )
 
-    # moving rating to DB
-    for player_name, rating in player_ratings.items():
-
+    for name, rating in player_ratings.items():
         cursor.execute("""
         UPDATE players
         SET rating = ?
         WHERE name = ?
-        """, (rating, player_name))
+        """, (rating, name))
 
     conn.commit()
+
+def is_db_empty():
+    cursor.execute("SELECT COUNT(*) FROM players")
+    return cursor.fetchone()[0] == 0

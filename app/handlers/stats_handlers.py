@@ -382,18 +382,6 @@ async def top_matches(message: Message):
 
     await message.answer(text)
 
-def get_player_name(player_id):
-    cursor.execute("SELECT name FROM players WHERE id = ?", (player_id,))
-    row = cursor.fetchone()
-    return row[0] if row else "Неизвестный"
-
-from aiogram.filters import Command
-from aiogram.types import Message
-
-from app.bot import dp
-from app.database.db import cursor
-
-
 def get_player_name(player_id: int):
     cursor.execute("SELECT name FROM players WHERE id = ?", (player_id,))
     row = cursor.fetchone()

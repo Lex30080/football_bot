@@ -3,7 +3,9 @@ from aiogram.filters import Command
 from aiogram.types import Message, PollAnswer
 from app.database.db import conn, cursor
 from aiogram.exceptions import TelegramBadRequest  
+from aiogram.fsm.context import FSMContext
 
+from app.handlers.historic_match_handlers import build_goals_kb
 from app.bot import dp, bot
 from app.state.game_state import game_state, MIN_PLAYERS, MAX_PLAYERS
 from app.utils.helpers import (
@@ -17,7 +19,8 @@ from app.utils.helpers import (
 )
 from app.data import players, player_ratings, telegram_usernames
 from app.config import ADMINS
-
+from app.state.historic_match_fsm import HistoricMatchFSM
+from datetime import datetime
 
 
 #  /GAME command
@@ -274,214 +277,40 @@ async def teams_handler(message: Message):
     await message.answer(text)
  
 
-# /FINISH command
-@dp.message(Command("finish"))
-async def finish_handler(message: Message):
+@dp.message(Command("result"))
+async def result_handler(message: Message, state: FSMContext):
 
-    if not is_admin(message.from_user.id):
-        return
-
-    match_id = get_active_match_id()
-
-    if match_id is None:
-        await message.answer("Нет активного матча.")
-        return
-
-    cursor.execute("""
-    SELECT status
-    FROM matches
-    WHERE id = ?
-    """, (match_id,))
-
-    match_result = cursor.fetchone()
-
-    if not match_result:
-        await message.answer("Матч не найден.")
-        return
-
-    if match_result[0] != "active":
-        await message.answer("Матч уже завершен.")
-        return
-
-    parts = message.text.split()
-
-    if len(parts) < 3:
+    if not game_state.current_red_team:
         await message.answer(
-            "Использование: /finish <red_score> <green_score>"
+            "Сначала создайте команды через /teams"
         )
         return
 
-    try:
-        red_score = int(parts[1])
-        green_score = int(parts[2])
+    await state.clear()
 
-    except ValueError:
-        await message.answer("Счет должен быть числом")
-        return
-
-    if red_score > green_score:
-        winner = "red"
-
-    elif green_score > red_score:
-        winner = "green"
-
-    else:
-        winner = "draw"
-
-    cursor.execute("""
-    UPDATE matches
-    SET red_score = ?,
-        green_score = ?,
-        winner = ?,
-        status = 'awaiting goals',
-        is_active = 1
-    WHERE id = ?
-    """, (red_score, green_score, winner, match_id))
-
-    conn.commit()
-
-    game_state.game_active = False
-
-    await message.answer(
-        f"Матч завершен!\n"
-        f"🔴 {red_score} - {green_score} 🟢"
+    await state.update_data(
+        match_date=datetime.now().strftime("%d.%m.%Y"),
+        red_team=game_state.current_red_team,
+        green_team=game_state.current_green_team,
+        goals={},
+        goal_history=[]
     )
 
-#  /SCORED command
-@dp.message(Command("scored"))
-async def scored_handler(message: Message):
-    await safe_delete(message)
-    if not is_admin(message.from_user.id):
-        return
-    
-    match_id = get_active_match_id()
-    if match_id is None:
-        await bot.send_message(message.from_user.id, "Нет активного матча.")
-        return
-    
-    cursor.execute("""
-    SELECT status
-    FROM matches
-    WHERE id = ?
-    """, (match_id,))
+    team = (
+        game_state.current_red_team +
+        game_state.current_green_team
+    )
 
-    match_status = cursor.fetchone()
+    await message.answer(
+        "⚽ Назначение голов:\n"
+        "Нажимайте на игроков."
+    )
 
-    if not match_status:
-        await bot.send_message(
-            message.from_user.id,
-            "Матч не найден."
-        )
-        return
+    await message.answer(
+        "Выбирайте игроков:",
+        reply_markup=build_goals_kb(team, {})
+    )
 
-    if match_status[0] != "awaiting goals":
-        await bot.send_message(
-            message.from_user.id,
-            "Сначала нужно завершить матч через /finish"
-        )
-        return
-
-    cursor.execute("""
-    SELECT COUNT(*)
-    FROM goals
-    WHERE match_id = ?
-    """, (match_id,))
-
-    goals_already_added = cursor.fetchone()[0]
-
-    if goals_already_added > 0:
-        await bot.send_message(message.from_user.id, "Голы для этого матча уже внесены.")
-        return
-    parts = message.text.split()
-
-    if len(parts) < 3 or len(parts[1:]) % 2 != 0:
-        await bot.send_message(message.from_user.id,
-            "Использование:\n/scored Murzinov 4 Novikov 2"
-        )
-        return
-    goal_data = []
-    added_goals = 0
-
-    for i in range(1, len(parts), 2):
-
-        scorer = parts[i].strip().title()
-
-        try:
-            goals_count = int(parts[i + 1])
-        except ValueError:
-            await bot.send_message(message.from_user.id, f"Ошибка в количестве голов у {scorer}")
-            return
-
-        player_id = get_player_id(scorer)
-
-        if player_id is None:
-            await bot.send_message(
-                message.from_user.id,
-                f"Игрок {scorer} не найден."
-                )
-            return
-
-        cursor.execute("""
-        SELECT team
-        FROM match_players
-        WHERE match_id = ?
-        AND player_id = ?
-        """, (match_id, player_id))
-
-        team_result = cursor.fetchone()
-
-        if not team_result:
-            await bot.send_message(message.from_user.id, f"{scorer} не играл в матче.")
-            return
-
-        team = team_result[0]
-    
-
-        goal_data.append((player_id, team, goals_count))
-        added_goals += goals_count
-
-
-    cursor.execute("""
-    SELECT red_score, green_score
-    FROM matches
-    WHERE id = ?
-    """, (match_id,))
-
-    match_data = cursor.fetchone()
-
-    expected_goals = match_data[0] + match_data[1]
-
-    if added_goals != expected_goals:
-        await bot.send_message(message.from_user.id, 
-            f"⚠️ Несовпадение!\n"
-            f"Счет матча: {expected_goals} голов\n"
-            f"Внесено голов: {added_goals}"
-        )
-        return
-
-
-    for player_id, team, goals_count in goal_data:
-        for _ in range(goals_count):
-            cursor.execute("""
-            INSERT INTO goals (match_id, scorer_id, team)
-            VALUES (?, ?, ?)
-            """, (match_id, player_id, team))
-
-    conn.commit()
-    
-    
-    cursor.execute("""
-    UPDATE matches
-    SET status = 'finished',
-        is_active = 0
-    WHERE id = ?
-    """, (match_id,))
-
-    conn.commit()
-
-    
-    game_state.current_red_team = []
-    game_state.current_green_team = []
-    game_state.players_for_game = []
-
-    await bot.send_message(message.from_user.id, f"⚽ Добавлено голов: {added_goals}")
+    await state.set_state(
+        HistoricMatchFSM.goals
+    )
