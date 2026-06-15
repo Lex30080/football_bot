@@ -5,7 +5,6 @@ from app.database.db import conn, cursor
 from aiogram.exceptions import TelegramBadRequest  
 from aiogram.fsm.context import FSMContext
 
-from app.handlers.historic_match_handlers import build_goals_kb
 from app.bot import dp, bot
 from app.state.game_state import game_state, MIN_PLAYERS, MAX_PLAYERS
 from app.utils.helpers import (
@@ -19,7 +18,7 @@ from app.utils.helpers import (
 )
 from app.data import players, player_ratings, telegram_usernames
 from app.config import ADMINS
-from app.state.historic_match_fsm import HistoricMatchFSM
+from app.state.match_setup_fsm import MatchSetupFSM
 from datetime import datetime
 
 
@@ -305,5 +304,7 @@ async def result_handler(message: Message, state: FSMContext):
     )
 
     await state.set_state(
-        HistoricMatchFSM.goals
+        
+        
+        MatchSetupFSM.goals
     )
