@@ -14,7 +14,7 @@ from app.data import players
 # =========================
 # UTILS
 # =========================
-DATE_REGEX = r"^\d{2}\.\d{2}\.\d{4}$"
+DATE_REGEX = r"^(?:(?:(?:0[1-9]|[12]\d|30)\.(?:0[13-9]|1[0-2])|(?:0[1-9]|1\d|2[0-8])\.02|(?:31)\.(?:0[13578]|1[02]))\.20(?:2[6-9]|[3-9]\d)|29\.02\.20(?:28|[3579][26]|[468][048]))$"
 
 def is_valid_date(text: str) -> bool:
     return bool(re.match(DATE_REGEX, text.strip()))
@@ -78,7 +78,7 @@ async def historic_start(message: Message, state: FSMContext):
 async def date_step(message: Message, state: FSMContext):
 
     if not is_valid_date(message.text):
-        await message.answer("❌ Формат: ДД.ММ.ГГГГ")
+        await message.answer("❌ Проверь дату. Формат: ДД.ММ.ГГГГ")
         return
 
     await state.update_data(
@@ -128,6 +128,7 @@ async def red_done(callback: CallbackQuery, state: FSMContext):
 
     # ⚠️ важно: убираем старую клавиатуру
     await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.delete()
 
     await callback.message.answer(
         f"🔴 Красные: {', '.join(data['red_team'])}\n\n"
@@ -193,6 +194,7 @@ async def green_done(callback: CallbackQuery, state: FSMContext):
 
     # убираем клавиатуру выбора зеленых
     await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.delete()
 
     # показываем состав зеленых
     await callback.message.answer(
@@ -344,6 +346,7 @@ async def finish(callback: CallbackQuery, state: FSMContext):
 
     await state.clear()
 
+    
     await callback.message.delete()
     await callback.message.answer(
         f"✅ Матч сохранён\n\n"

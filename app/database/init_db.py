@@ -17,9 +17,7 @@ def init_database():
         match_date TEXT,
         red_score INTEGER DEFAULT 0,
         green_score INTEGER DEFAULT 0,
-        winner TEXT,
-        status TEXT DEFAULT 'active',
-        is_active INTEGER DEFAULT 0
+        winner TEXT
     )
     """)
 

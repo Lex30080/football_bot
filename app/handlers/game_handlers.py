@@ -212,20 +212,13 @@ async def teams_handler(message: Message):
     game_state.current_red_team = red_team.copy()
     game_state.current_green_team = green_team.copy()
 
-    cursor.execute("""
-    UPDATE matches
-    SET is_active = 0
-    WHERE is_active = 1
-    """)
 
     cursor.execute("""
     INSERT INTO matches (
-        match_date,
-        is_active
+        match_date
     )
     VALUES (
-        DATETIME('now'),
-        1
+        DATETIME('date')
     )
     """)
 
