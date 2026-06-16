@@ -241,3 +241,76 @@ async def green_done(callback: CallbackQuery, state: FSMContext):
     )
 
     await callback.answer()
+
+#=========================
+# DELETE MATCH
+#=========================
+from aiogram.filters import Command
+from aiogram.types import Message
+
+from app.bot import dp
+from app.database.db import conn, cursor
+
+
+@dp.message(Command("deletematch"))
+async def delete_match(message: Message):
+
+    parts = message.text.split()
+
+    if len(parts) != 2:
+        await message.answer(
+            "Использование:\n"
+            "/deletematch ID"
+        )
+        return
+
+    try:
+        match_id = int(parts[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом")
+        return
+
+    cursor.execute(
+        "SELECT id FROM matches WHERE id = ?",
+        (match_id,)
+    )
+
+    match_exists = cursor.fetchone()
+
+    if not match_exists:
+        await message.answer(
+            f"❌ Матч #{match_id} не найден"
+        )
+        return
+
+    try:
+        conn.execute("BEGIN")
+
+        cursor.execute(
+            "DELETE FROM goals WHERE match_id = ?",
+            (match_id,)
+        )
+
+        cursor.execute(
+            "DELETE FROM match_players WHERE match_id = ?",
+            (match_id,)
+        )
+
+        cursor.execute(
+            "DELETE FROM matches WHERE id = ?",
+            (match_id,)
+        )
+
+        conn.commit()
+
+        await message.answer(
+            f"✅ Матч #{match_id} удалён"
+        )
+
+    except Exception as e:
+
+        conn.rollback()
+
+        await message.answer(
+            f"❌ Ошибка удаления:\n{e}"
+        )

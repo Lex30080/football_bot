@@ -2,7 +2,6 @@ import random
 from aiogram.filters import Command
 from aiogram.types import Message, PollAnswer
 from app.database.db import conn, cursor
-from aiogram.exceptions import TelegramBadRequest  
 from aiogram.fsm.context import FSMContext
 
 from app.bot import dp, bot
@@ -10,50 +9,98 @@ from app.state.game_state import game_state, MIN_PLAYERS, MAX_PLAYERS
 from app.utils.helpers import (
     is_admin,
     get_player_id,
-    get_active_match_id,
     get_player_rating,
     safe_delete,
     get_game_status,
     format_lineup
 )
-from app.data import players, player_ratings, telegram_usernames
-from app.config import ADMINS
-from app.state.match_setup_fsm import MatchSetupFSM
-from datetime import datetime
+from app.data import players
+from app.state.goal_input_fsm import GoalInputFSM
+from app.handlers.goals_input_fsm import build_goals_kb
 
-
-#  /GAME command
+#=========================
+# /GAME command
+#=========================
 @dp.message(Command("game"))
 async def game_handler(message: Message):
+
     if not is_admin(message.from_user.id):
         return
-    
-    if not game_state.game_active:
-        game_state.game_active = True
-        game_state.players_for_game = []
-        await message.answer("Новая игра началась! нажми /join чтобы записаться")
-    else:
-        await message.answer(f"Набор уже идет! {len(game_state.players_for_game)}/{MAX_PLAYERS} игроков записано")    
 
-# /JOIN command (NEEDS CORRECTING LATER)
-@dp.message(Command("join"))
-async def join_handler(message: Message):
-   if not game_state.game_active:
-        await message.answer("❌ Сейчас нет активной игры.\nИспользуйте /game")
+    game_state.game_active = True
+    game_state.players_for_game = []
+
+    await message.answer(
+        "⚽ Ручной режим игры активирован.\n\n"
+        "Используйте:\n"
+        "/add Фамилия\n"
+        "/remove Фамилия\n"
+        "/teams"
+    )
+#=========================
+# ADD PLAYER
+#=========================
+@dp.message(Command("add"))
+async def add_player(message: Message):
+
+    if not is_admin(message.from_user.id):
         return
-   if len(game_state.players_for_game) >= MAX_PLAYERS:
-        await message.answer("Мест нет, 12/12")
-        return 
-   
-   parts = message.text.split()
-   name = parts[1].strip().title()
-   
-   if name not in game_state.players_for_game:
-       game_state.players_for_game.append(name)
-       status = get_game_status()
-       await message.answer(status)
-   else:
-       await message.answer(f"{name} уже записан на игру.")
+
+    parts = message.text.split(maxsplit=1)
+
+    if len(parts) < 2:
+        await message.answer(
+            "Использование:\n/add Фамилия"
+        )
+        return
+
+    player = parts[1].strip().title()
+
+    if player not in players:
+        await message.answer("Такого игрока нет")
+        return
+
+    if player in game_state.players_for_game:
+        await message.answer(
+            f"{player} уже добавлен"
+        )
+        return
+
+    game_state.players_for_game.append(player)
+
+    await message.answer(
+        f"✅ {player} добавлен"
+    )
+#=========================
+# REMOVE PLAYER
+#=========================
+@dp.message(Command("remove"))
+async def remove_player(message: Message):
+
+    if not is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split(maxsplit=1)
+
+    if len(parts) < 2:
+        await message.answer(
+            "Использование:\n/remove Фамилия"
+        )
+        return
+
+    player = parts[1].strip().title()
+
+    if player not in game_state.players_for_game:
+        await message.answer(
+            f"{player} не найден"
+        )
+        return
+
+    game_state.players_for_game.remove(player)
+
+    await message.answer(
+        f"❌ {player} удалён"
+    )
 
 #  /LINEUP command
 @dp.message(Command("lineup"))
@@ -77,38 +124,12 @@ async def cancel_handler(message: Message):
         return
     game_state.game_active = False
     game_state.players_for_game = []
+
+    game_state.current_match_id = None
+    game_state.current_red_team = []
+    game_state.current_green_team = []
     await message.answer("Игра отменена.")
 
-
-# /LEAVE command
-@dp.message(Command("leave"))
-async def leave_handler(message: Message):
-
-    if not game_state.game_active:
-        await message.answer("Сейчас нет активной игры.")
-        return
-
-    parts = message.text.split()
-
-    if len(parts) < 2:
-        await message.answer("Использование: /leave Фамилия")
-        return
-
-    name = parts[1].strip().title()
-
-    if name in game_state.players_for_game:
-        game_state.players_for_game.remove(name)
-
-        status = get_game_status()
-
-        await message.answer(
-            f"{name} покинул игру.\n\n{status}"
-        )
-
-    else:
-        await message.answer(
-            f"{name} не записан на игру."
-        )
 
 # /POLL command
 @dp.message(Command("poll"))
@@ -160,35 +181,46 @@ async def activate_game_handler(message: Message):
         return
     else:
         game_state.game_active = True
-        status = get_game_status()
-        await message.answer(f"Игра активирована на {date}!\n\nИспользуйте /join чтобы записаться\n\n")
-        await message.answer(status)  
-        await message.answer(format_lineup(game_state.players_for_game))
+        await message.answer(
+    f"Игра активирована на {date}!\n\n"
+    f"Используйте /add и /remove для корректировки состава."
+)
 
-# /TEAMS command
+        await message.answer(
+            format_lineup(game_state.players_for_game)
+        )   
+# =========================
+# /TEAMS
+# =========================
 @dp.message(Command("teams"))
 async def teams_handler(message: Message):
 
     if not is_admin(message.from_user.id):
         return
 
-    active_match_id = get_active_match_id()
-
-    if active_match_id is not None:
-        await message.answer("Матч уже создан.")
-        return
-
     if not game_state.game_active:
-        await message.answer("Сейчас нет активной игры.")
+        await message.answer(
+            "Сейчас нет активной игры."
+        )
+        return
+    
+    if game_state.current_match_id:
+        await message.answer(
+        "Матч уже создан. Используйте /result."
+    )
         return
 
     if len(game_state.players_for_game) < MIN_PLAYERS:
-        await message.answer("Недостаточно игроков.")
+        await message.answer(
+            "Недостаточно игроков."
+        )
         return
 
+    # очищаем прошлые команды
     game_state.current_red_team = []
     game_state.current_green_team = []
 
+    # балансировка
     shuffled_players = game_state.players_for_game.copy()
     random.shuffle(shuffled_players)
 
@@ -208,53 +240,75 @@ async def teams_handler(message: Message):
         else:
             green_team.append(player)
 
-    game_state.current_red_team = red_team.copy()
-    game_state.current_green_team = green_team.copy()
+    game_state.current_red_team = red_team
+    game_state.current_green_team = green_team
 
+    # =========================
+    # создаём матч в БД
+    # =========================
 
     cursor.execute("""
-    INSERT INTO matches (
-        match_date
-    )
-    VALUES (
-        DATETIME('date')
-    )
+        INSERT INTO matches (
+            status,
+            match_date
+        )
+        VALUES (
+            'draft',
+            DATE('now')
+        )
     """)
 
     conn.commit()
 
-    new_match_id = cursor.lastrowid
-    game_state.current_match_id = new_match_id
+    match_id = cursor.lastrowid
+
+    game_state.current_match_id = match_id
+
+    # =========================
+    # сохраняем составы
+    # =========================
 
     for player in red_team:
 
         player_id = get_player_id(player)
 
         cursor.execute("""
-        INSERT INTO match_players (
+            INSERT INTO match_players (
+                match_id,
+                player_id,
+                team
+            )
+            VALUES (?, ?, ?)
+        """, (
             match_id,
             player_id,
-            team
-        )
-        VALUES (?, ?, ?)
-        """, (new_match_id, player_id, "red"))
+            "red"
+        ))
 
     for player in green_team:
 
         player_id = get_player_id(player)
 
         cursor.execute("""
-        INSERT INTO match_players (
+            INSERT INTO match_players (
+                match_id,
+                player_id,
+                team
+            )
+            VALUES (?, ?, ?)
+        """, (
             match_id,
             player_id,
-            team
-        )
-        VALUES (?, ?, ?)
-        """, (new_match_id, player_id, "green"))
+            "green"
+        ))
 
     conn.commit()
 
-    text = "Команды:\n\n"
+    # =========================
+    # вывод команд
+    # =========================
+
+    text = "⚽ Команды сформированы\n\n"
 
     text += "🔴 Красные:\n"
 
@@ -266,22 +320,23 @@ async def teams_handler(message: Message):
     for player in green_team:
         text += f"• {player}\n"
 
+    text += f"\n🆔 Матч #{match_id}"
+
     await message.answer(text)
- 
 
 @dp.message(Command("result"))
 async def result_handler(message: Message, state: FSMContext):
 
-    if not game_state.current_red_team:
+    if not game_state.current_match_id:
         await message.answer(
-            "Сначала создайте команды через /teams"
+            "Сначала создайте матч через /teams"
         )
         return
 
     await state.clear()
 
     await state.update_data(
-        match_date=datetime.now().strftime("%d.%m.%Y"),
+        match_id=game_state.current_match_id,
         red_team=game_state.current_red_team,
         green_team=game_state.current_green_team,
         goals={},
@@ -293,8 +348,9 @@ async def result_handler(message: Message, state: FSMContext):
         game_state.current_green_team
     )
 
+
     await message.answer(
-        "⚽ Назначение голов:\n"
+        "⚽ Назначение голов\n"
         "Нажимайте на игроков."
     )
 
@@ -304,7 +360,5 @@ async def result_handler(message: Message, state: FSMContext):
     )
 
     await state.set_state(
-        
-        
-        MatchSetupFSM.goals
+        GoalInputFSM.goals
     )

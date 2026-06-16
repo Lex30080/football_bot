@@ -6,7 +6,7 @@ from app.bot import dp
 from app.database.db import cursor, conn
 from app.data import players
 from app.state.goal_input_fsm import GoalInputFSM
-
+from app.state.game_state import game_state
 
 from app.utils.helpers import get_player_id
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -131,6 +131,13 @@ async def goal_finish(callback: CallbackQuery, state: FSMContext):
     """, (red_score, green_score, winner, match_id))
 
     conn.commit()
+
+    game_state.game_active = False
+    game_state.players_for_game = []
+
+    game_state.current_match_id = None
+    game_state.current_red_team = []
+    game_state.current_green_team = []
 
     await state.clear()
 
