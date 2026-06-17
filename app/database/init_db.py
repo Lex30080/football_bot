@@ -39,16 +39,28 @@ def init_database():
     )
     """)
 
-    conn.commit()
+    
 #==========================
 # PENDING ANNOUNCEMENTS TABLE
-#========================== 
-CREATE TABLE pending_announcements (
+#==========================
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS pending_announcements (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     text TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     sent INTEGER DEFAULT 0
-);
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS config (
+    key TEXT PRIMARY KEY,
+    value TEXT)"""
+    )
+    conn.commit()
+
+
+
 
 def seed_database():
     for player in players:

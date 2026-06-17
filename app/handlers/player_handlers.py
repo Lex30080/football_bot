@@ -100,7 +100,7 @@ async def register_handler(message: Message):
     await message.answer(
         f"✅ {player_name} успешно зарегистрирован."
     )
-    
+
 #  RATINGS command to see list of ratings
 @dp.message(Command("ratings"))
 async def ratings_handler(message: Message):
@@ -129,7 +129,7 @@ async def players_handler(message: Message):
     for player in players:
         shirt += 1
         text += f"{shirt}. {player}\n"
-    
+    print(message.chat.id)
     await bot.send_message(message.from_user.id, text)
 
 # SET RATING command

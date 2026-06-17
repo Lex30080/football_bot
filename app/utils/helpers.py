@@ -123,3 +123,14 @@ def format_lineup(player_list):
         "Состав игроков:\n\n"
         + "\n".join(f"• {player}" for player in player_list)
     )
+
+from app.database.db import cursor
+
+def get_player_name(player_id: int):
+    cursor.execute("""
+        SELECT name
+        FROM players
+        WHERE id = ?
+    """, (player_id,))
+    row = cursor.fetchone()
+    return row[0] if row else "Unknown"
