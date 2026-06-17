@@ -10,7 +10,7 @@ from app.state.game_state import game_state
 
 from app.utils.helpers import get_player_id
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-
+from app.utils.achievements import check_achievements
 
 def build_goals_kb(team, goals):
     kb = InlineKeyboardBuilder()
@@ -131,7 +131,7 @@ async def goal_finish(callback: CallbackQuery, state: FSMContext):
     """, (red_score, green_score, winner, match_id))
 
     conn.commit()
-
+    check_achievements(match_id)
     game_state.game_active = False
     game_state.players_for_game = []
 

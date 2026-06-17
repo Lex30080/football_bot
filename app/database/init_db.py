@@ -40,7 +40,15 @@ def init_database():
     """)
 
     conn.commit()
-
+#==========================
+# PENDING ANNOUNCEMENTS TABLE
+#========================== 
+CREATE TABLE pending_announcements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    text TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sent INTEGER DEFAULT 0
+);
 
 def seed_database():
     for player in players:
