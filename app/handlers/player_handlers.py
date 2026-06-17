@@ -18,11 +18,10 @@ from app.data import players, player_ratings, telegram_usernames
 from app.config import ADMINS
 
 
-#  /REGISTER command
 @dp.message(Command("register"))
 async def register_handler(message: Message):
-    
-    parts = message.text.split()
+
+    parts = message.text.split(maxsplit=1)
 
     if len(parts) < 2:
         await message.answer(
@@ -30,47 +29,78 @@ async def register_handler(message: Message):
         )
         return
 
-    player_name = parts[1].title().strip()
-
+    player_name = parts[1].strip().title()
     telegram_id = message.from_user.id
 
-    # проверяем существует ли игрок
+    # =========================
+    # Проверяем, не зарегистрирован ли уже этот Telegram
+    # =========================
+
     cursor.execute("""
-    SELECT id, telegram_id
-    FROM players
-    WHERE name = ?
+        SELECT name
+        FROM players
+        WHERE telegram_id = ?
+    """, (telegram_id,))
+
+    existing_player = cursor.fetchone()
+
+    if existing_player:
+        await message.answer(
+            f"Вы уже зарегистрированы как "
+            f"{existing_player[0]}"
+        )
+        return
+
+    # =========================
+    # Ищем игрока
+    # =========================
+
+    cursor.execute("""
+        SELECT id, telegram_id
+        FROM players
+        WHERE name = ?
     """, (player_name,))
 
     player = cursor.fetchone()
 
     if not player:
         await message.answer(
-            "Игрок не найден.\nОбратитесь к администратору."
+            "Игрок не найден.\n"
+            "Обратитесь к администратору."
         )
         return
 
     player_id, existing_telegram_id = player
 
-    # проверяем зарегистрирован ли уже
+    # =========================
+    # Игрок уже привязан
+    # =========================
+
     if existing_telegram_id is not None:
         await message.answer(
-            "Этот игрок уже зарегистрирован."
+            f"{player_name} уже зарегистрирован."
         )
         return
 
-    # привязываем telegram_id
+    # =========================
+    # Привязка Telegram
+    # =========================
+
     cursor.execute("""
-    UPDATE players
-    SET telegram_id = ?
-    WHERE id = ?
-    """, (telegram_id, player_id))
+        UPDATE players
+        SET telegram_id = ?
+        WHERE id = ?
+    """, (
+        telegram_id,
+        player_id
+    ))
 
     conn.commit()
 
     await message.answer(
         f"✅ {player_name} успешно зарегистрирован."
     )
-
+    
 #  RATINGS command to see list of ratings
 @dp.message(Command("ratings"))
 async def ratings_handler(message: Message):
