@@ -53,7 +53,7 @@ def init_database():
     """)
 
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS config (
+    CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT)"""
     )

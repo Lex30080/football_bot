@@ -6,7 +6,14 @@ from app.utils.settings import get_setting
 
 
 async def send_next_announcement():
-    group_id = get_setting("group_id") 
+
+    group_id = get_setting("group_id")
+
+    if not group_id:
+        print("group_id не настроен")
+        return
+
+    group_id = int(group_id)
 
     cursor.execute("""
         SELECT id, text

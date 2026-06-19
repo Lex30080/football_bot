@@ -10,12 +10,13 @@ from app.database.init_db import seed_database
 from app.database.init_db import is_db_empty
 from app.announcement_scheduler import scheduler
 
-def setup_handlers():
-    import app.handlers.game_handlers
-    import app.handlers.player_handlers
-    import app.handlers.historic_match_handlers
-    import app.handlers.stats_handlers
-    import app.handlers.help_handlers
+
+import app.handlers.game_handlers
+import app.handlers.player_handlers
+import app.handlers.historic_match_handlers
+import app.handlers.stats_handlers
+import app.handlers.help_handlers
+import app.handlers.setup
 
 
 @dp.message(CommandStart())
@@ -23,13 +24,11 @@ async def start_handler(message: Message):
     await message.answer("⚽ Football bot is running!")
 
 
-async def main():
-    setup_handlers()
-    
+async def main():  
     init_database()
     if is_db_empty():
         seed_database()
-    scheduler.start()
+    scheduler.start() # Запускаем планировщик новостей
     print("Bot started")
 
     try:
