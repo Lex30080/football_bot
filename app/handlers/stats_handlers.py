@@ -305,14 +305,14 @@ def build_match_info(match_id):
 
     return text
 
-@dp.message(Command("matchinfo"))
+@dp.message(Command("match"))
 async def matchinfo_handler(message: Message):
 
     parts = message.text.split()
 
     if len(parts) < 2:
         await message.answer(
-            "Использование:\n/matchinfo <id>"
+            "Использование:\n/match <id>"
         )
         return
 

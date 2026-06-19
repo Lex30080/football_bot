@@ -1,28 +1,51 @@
 from app.database.db import cursor, conn
 from app.utils.helpers import get_player_name
 
-def add_announcement(text):
 
+# =========================
+# ANNOUNCEMENTS
+# =========================
+def add_announcement(text):
     cursor.execute("""
         INSERT INTO pending_announcements (text)
         VALUES (?)
     """, (text,))
+    conn.commit()
+
+
+# =========================
+# FIFA CORE (единственная точка выдачи наград)
+# =========================
+def give_achievement(player_id: int, ach_type: str, value: int, text: str):
+
+    cursor.execute("""
+        SELECT 1
+        FROM player_achievements
+        WHERE player_id = ? AND type = ? AND value = ?
+    """, (player_id, ach_type, value))
+
+    if cursor.fetchone():
+        return
+
+    cursor.execute("""
+        INSERT INTO player_achievements (player_id, type, value)
+        VALUES (?, ?, ?)
+    """, (player_id, ach_type, value))
 
     conn.commit()
 
-#==========================
-# Агрегатная функция для получения всех достижений
-#==========================
+    add_announcement(text)
+
+
+# =========================
+# MAIN ENTRY POINT
+# =========================
 def check_achievements(match_id):
 
     check_total_matches()
-
     check_total_goals()
-
     check_total_draws()
-
     check_match_goal_record(match_id)
-
     check_player_match_goal_record(match_id)
 
     cursor.execute("""
@@ -34,18 +57,16 @@ def check_achievements(match_id):
     players = cursor.fetchall()
 
     for (player_id,) in players:
-
-        check_matches_achievement(player_id)
-
-        check_goals_achievement(player_id)
-
-        check_wins_achievement(player_id)
-
+        check_player_goals(player_id)
+        check_player_wins(player_id)
+        check_player_matches(player_id)
         check_first_goal(player_id)
-#==========================
-# Голы игрока
-#==========================
-def check_goals_achievement(player_id):
+
+
+# =========================
+# PLAYER GOALS
+# =========================
+def check_player_goals(player_id):
 
     cursor.execute("""
         SELECT COUNT(*)
@@ -55,37 +76,30 @@ def check_goals_achievement(player_id):
 
     goals = cursor.fetchone()[0]
 
-    milestones = [
-        10, 25, 50, 100,
-        150, 200, 250,
-        300, 400, 500
-    ]
+    milestones = [10, 25, 50, 100, 150, 200, 250, 300, 400, 500]
 
-    if goals not in milestones:
-        return
+    cursor.execute("SELECT name FROM players WHERE id = ?", (player_id,))
+    name = cursor.fetchone()[0]
 
-    cursor.execute("""
-        SELECT name
-        FROM players
-        WHERE id = ?
-    """, (player_id,))
+    for m in milestones:
+        if goals >= m:
+            give_achievement(
+                player_id,
+                "goals",
+                m,
+                f"⚽ {name} достиг {m} голов в карьере!"
+            )
 
-    player_name = cursor.fetchone()[0]
 
-    add_announcement(
-        f"⚽ {player_name} забил {goals}-й гол!"
-    )
-
-#==========================
-# Победы игрока
-#==========================
-def check_wins_achievement(player_id):
+# =========================
+# PLAYER WINS
+# =========================
+def check_player_wins(player_id):
 
     cursor.execute("""
         SELECT COUNT(*)
         FROM match_players mp
-        JOIN matches m
-            ON mp.match_id = m.id
+        JOIN matches m ON mp.match_id = m.id
         WHERE mp.player_id = ?
         AND (
             (mp.team = 'red' AND m.winner = 'red')
@@ -96,65 +110,54 @@ def check_wins_achievement(player_id):
 
     wins = cursor.fetchone()[0]
 
-    milestones = [
-        10, 25, 50,
-        75, 100, 150,
-        200
-    ]
+    milestones = [10, 25, 50, 75, 100, 150, 200]
 
-    if wins not in milestones:
-        return
+    cursor.execute("SELECT name FROM players WHERE id = ?", (player_id,))
+    name = cursor.fetchone()[0]
 
-    cursor.execute("""
-        SELECT name
-        FROM players
-        WHERE id = ?
-    """, (player_id,))
+    for m in milestones:
+        if wins >= m:
+            give_achievement(
+                player_id,
+                "wins",
+                m,
+                f"🏆 {name} достиг {m} побед!"
+            )
 
-    player_name = cursor.fetchone()[0]
 
-    add_announcement(
-        f"🏆 {player_name} одержал {wins}-ю победу!"
-    )
-#==========================
-# Матчи игрока
 # =========================
-def check_matches_achievement(player_id):
+# PLAYER MATCHES
+# =========================
+def check_player_matches(player_id):
 
     cursor.execute("""
         SELECT COUNT(*)
         FROM match_players mp
-        JOIN matches m
-            ON mp.match_id = m.id
+        JOIN matches m ON mp.match_id = m.id
         WHERE mp.player_id = ?
         AND m.status = 'finished'
     """, (player_id,))
 
     matches = cursor.fetchone()[0]
 
-    milestones = [
-        10, 25, 50,
-        75, 100, 150,
-        200, 300, 500
-    ]
+    milestones = [10, 25, 50, 75, 100, 150, 200, 300, 500]
 
-    if matches not in milestones:
-        return
+    cursor.execute("SELECT name FROM players WHERE id = ?", (player_id,))
+    name = cursor.fetchone()[0]
 
-    cursor.execute("""
-        SELECT name
-        FROM players
-        WHERE id = ?
-    """, (player_id,))
+    for m in milestones:
+        if matches >= m:
+            give_achievement(
+                player_id,
+                "matches",
+                m,
+                f"🎮 {name} сыграл {m} матчей!"
+            )
 
-    player_name = cursor.fetchone()[0]
 
-    add_announcement(
-        f"🎖 {player_name} сыграл {matches}-й матч!"
-    )       
-#==========================
-# Всего сыграно матчей
-#==========================
+# =========================
+# GLOBAL TOTAL MATCHES
+# =========================
 def check_total_matches():
 
     cursor.execute("""
@@ -165,21 +168,15 @@ def check_total_matches():
 
     total = cursor.fetchone()[0]
 
-    milestones = [
-        10, 25, 50,
-        100, 150, 200,
-        300, 500, 1000
-    ]
+    milestones = [10, 25, 50, 100, 150, 200, 300, 500, 1000]
 
     if total in milestones:
+        add_announcement(f"🎊 В истории лиги сыгран {total}-й матч!")
 
-        add_announcement(
-            f"🎊 В истории лиги сыгран {total}-й матч!"
-        )
 
-#==========================
-# Всего забито голов
-#==========================
+# =========================
+# GLOBAL TOTAL GOALS
+# =========================
 def check_total_goals():
 
     cursor.execute("""
@@ -189,21 +186,15 @@ def check_total_goals():
 
     total = cursor.fetchone()[0]
 
-    milestones = [
-        100, 250, 500,
-        1000, 1500,
-        2000, 3000
-    ]
+    milestones = [100, 250, 500, 1000, 1500, 2000, 3000]
 
     if total in milestones:
+        add_announcement(f"⚽ В истории лиги забит {total}-й гол!")
 
-        add_announcement(
-            f"⚽ В истории лиги забит {total}-й гол!"
-        )  
 
-#==========================
-# Всего ничьих
-#==========================
+# =========================
+# GLOBAL DRAWS
+# =========================
 def check_total_draws():
 
     cursor.execute("""
@@ -214,19 +205,15 @@ def check_total_draws():
 
     draws = cursor.fetchone()[0]
 
-    milestones = [
-        10, 25, 50,
-        100, 150, 200
-    ]
+    milestones = [10, 25, 50, 100, 150, 200]
 
     if draws in milestones:
+        add_announcement(f"🤝 Зафиксирована {draws}-я ничья в истории лиги!")
 
-        add_announcement(
-            f"🤝 Зафиксирована {draws}-я ничья в истории лиги!"
-        )
-#==========================
-# Проверка рекорда результативности матча
-#========================== 
+
+# =========================
+# MATCH RECORD
+# =========================
 def check_match_goal_record(match_id):
 
     cursor.execute("""
@@ -247,20 +234,16 @@ def check_match_goal_record(match_id):
     previous = cursor.fetchone()[0] or 0
 
     if current > previous:
+        add_announcement(f"🔥 Новый рекорд матча — {current} голов!")
 
-        add_announcement(
-            f"🔥 Новый рекорд результативности матча — {current} голов!"
-        )  
 
-#==========================
-# Проверка рекорда результативности игрока в матче
-#==========================
+# =========================
+# PLAYER MATCH RECORD
+# =========================
 def check_player_match_goal_record(match_id):
 
-
     cursor.execute("""
-        SELECT scorer_id,
-            COUNT(*) as goals
+        SELECT scorer_id, COUNT(*) as goals
         FROM goals
         WHERE match_id = ?
         GROUP BY scorer_id
@@ -278,9 +261,7 @@ def check_player_match_goal_record(match_id):
     cursor.execute("""
         SELECT MAX(goal_count)
         FROM (
-            SELECT scorer_id,
-                match_id,
-                COUNT(*) as goal_count
+            SELECT scorer_id, match_id, COUNT(*) as goal_count
             FROM goals
             WHERE match_id <> ?
             GROUP BY scorer_id, match_id
@@ -289,26 +270,18 @@ def check_player_match_goal_record(match_id):
 
     previous_record = cursor.fetchone()[0] or 0
 
-    if current_record <= previous_record:
-        return
+    if current_record > previous_record:
+        cursor.execute("SELECT name FROM players WHERE id = ?", (player_id,))
+        name = cursor.fetchone()[0]
 
-    cursor.execute("""
-        SELECT name
-        FROM players
-        WHERE id = ?
-    """, (player_id,))
-
-    player_name = cursor.fetchone()[0]
-
-    add_announcement(
-        f"🔥 {player_name} установил новый рекорд — "
-        f"{current_record} голов за матч!"
-    )
+        add_announcement(
+            f"🔥 {name} установил рекорд — {current_record} голов за матч!"
+        )
 
 
-#==========================
-# Первый гол в лиге         
-#==========================
+# =========================
+# FIRST GOAL
+# =========================
 def check_first_goal(player_id):
 
     cursor.execute("""
@@ -319,17 +292,26 @@ def check_first_goal(player_id):
 
     goals = cursor.fetchone()[0]
 
-    if goals != 1:
+    if goals == 0:
         return
 
     cursor.execute("""
-        SELECT name
-        FROM players
-        WHERE id = ?
+        SELECT 1
+        FROM player_achievements
+        WHERE player_id = ? AND type = 'first_goal'
     """, (player_id,))
 
-    player_name = cursor.fetchone()[0]
+    if cursor.fetchone():
+        return
 
-    add_announcement(
-        f"🎉 {player_name} открыл счёт своим голам в лиге!"
-    )
+    cursor.execute("""
+        INSERT INTO player_achievements (player_id, type, value)
+        VALUES (?, 'first_goal', 1)
+    """, (player_id,))
+
+    conn.commit()
+
+    cursor.execute("SELECT name FROM players WHERE id = ?", (player_id,))
+    name = cursor.fetchone()[0]
+
+    add_announcement(f"🎉 {name} открыл счёт голам в лиге!")

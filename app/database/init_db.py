@@ -57,7 +57,21 @@ def init_database():
     key TEXT PRIMARY KEY,
     value TEXT)"""
     )
+    
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS player_achievements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    player_id INTEGER,
+    type TEXT,
+    value INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(player_id, type, value)
+)"""
+    )
+
     conn.commit()
+
 
 
 
