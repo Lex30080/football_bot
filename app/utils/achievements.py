@@ -14,7 +14,7 @@ def add_announcement(text):
 
 
 # =========================
-# FIFA CORE (единственная точка выдачи наград)
+# Point of giving an achievement to a player
 # =========================
 def give_achievement(player_id: int, ach_type: str, value: int, text: str):
 
@@ -275,7 +275,7 @@ def check_player_match_goal_record(match_id):
         name = cursor.fetchone()[0]
 
         add_announcement(
-            f"🔥 {name} установил рекорд — {current_record} голов за матч!"
+            f"🔥 {name} установил рекорд — {current_record} голов в одном матче!"
         )
 
 

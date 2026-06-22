@@ -9,7 +9,7 @@ from app.database.init_db import init_database
 from app.database.init_db import seed_database
 from app.database.init_db import is_db_empty
 from app.announcement_scheduler import scheduler
-
+from app.handlers.help_handlers import setup_commands
 
 import app.handlers.game_handlers
 import app.handlers.player_handlers
@@ -28,6 +28,7 @@ async def main():
     init_database()
     if is_db_empty():
         seed_database()
+    await setup_commands()
     scheduler.start() # Запускаем планировщик новостей
     print("Bot started")
 

@@ -314,3 +314,41 @@ async def delete_match(message: Message):
         await message.answer(
             f"❌ Ошибка удаления:\n{e}"
         )
+
+@dp.message(Command("edit_date"))
+async def edit_date(message: Message):
+
+    if not is_admin(message.from_user.id):
+        return
+
+    parts = message.text.split()
+
+    if len(parts) != 3:
+        await message.answer(
+            "Использование:\n/edit_date <match_id> <YYYY-MM-DD>"
+        )
+        return
+
+    _, match_id, new_date = parts
+
+    cursor.execute("""
+        SELECT id
+        FROM matches
+        WHERE id = ?
+    """, (match_id,))
+
+    if not cursor.fetchone():
+        await message.answer("Матч не найден")
+        return
+
+    cursor.execute("""
+        UPDATE matches
+        SET match_date = ?
+        WHERE id = ?
+    """, (new_date, match_id))
+
+    conn.commit()
+
+    await message.answer(
+        f"✅ Дата матча #{match_id} изменена на {new_date}"
+    )

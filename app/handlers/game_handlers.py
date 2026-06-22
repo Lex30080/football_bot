@@ -189,6 +189,7 @@ async def activate_game_handler(message: Message):
         await message.answer(
             format_lineup(game_state.players_for_game)
         )   
+
 # =========================
 # /TEAMS
 # =========================
