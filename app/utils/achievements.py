@@ -87,7 +87,7 @@ def check_player_goals(player_id):
                 player_id,
                 "goals",
                 m,
-                f"⚽ {name} достиг {m} голов в карьере!"
+                f"⚽ {name} забил {m} голов в лиге!"
             )
 
 
