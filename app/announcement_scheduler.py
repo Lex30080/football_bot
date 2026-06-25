@@ -70,8 +70,9 @@ scheduler = AsyncIOScheduler()
 
 scheduler.add_job(
     send_next_announcement,
-    trigger="interval",
-    minutes=1,
-    max_instances=1,   # доп защита от наложений
-    coalesce=True      # если бот лагал — не копить "догоняющие" запуски
+    trigger="cron",
+    hour=12,
+    minute=0,
+    max_instances=1,
+    coalesce=True
 )
