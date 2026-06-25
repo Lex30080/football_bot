@@ -20,21 +20,40 @@ from app.config import ADMINS
 @dp.message(Command("topscorers"))
 async def topscorers_handler(message: Message):
 
+    # =========================
+    # парсим лимит
+    # =========================
+    parts = message.text.split()
+
+    limit = 10  # default
+
+    if len(parts) > 1:
+        try:
+            limit = int(parts[1])
+        except ValueError:
+            await message.answer("❌ Укажи число, например: /topscorers 20")
+            return
+
+    # защита
+    if limit <= 0:
+        limit = 10
+    if limit > 100:
+        limit = 100
+
+    # =========================
+    # запрос
+    # =========================
     cursor.execute("""
-    SELECT
-        players.name,
-        COUNT(goals.id) as goals_count
-    FROM goals
-
-    JOIN players
-        ON goals.scorer_id = players.id
-
-    GROUP BY players.id
-
-    ORDER BY goals_count DESC
-
-    LIMIT 10
-    """)
+        SELECT
+            players.name,
+            COUNT(goals.id) as goals_count
+        FROM goals
+        JOIN players
+            ON goals.scorer_id = players.id
+        GROUP BY players.id
+        ORDER BY goals_count DESC
+        LIMIT ?
+    """, (limit,))
 
     scorers = cursor.fetchall()
 
@@ -42,13 +61,22 @@ async def topscorers_handler(message: Message):
         await message.answer("⚽ Пока нет голов.")
         return
 
-    text = "🏆 Топ бомбардиров:\n\n"
+    # =========================
+    # вывод
+    # =========================
+    text = (
+        f"🏆 <b>Топ бомбардиров (TOP {limit})</b>\n\n"
+        "<pre>"
+        " #  Игрок            Голы\n"
+        "------------------------\n"
+    )
 
     for index, (name, goals) in enumerate(scorers, start=1):
+        text += f"{index:>2}. {name[:15]:15}{goals:>4}\n"
 
-        text += f"{index}. {name} — {goals}\n"
+    text += "</pre>"
 
-    await message.answer(text)
+    await message.answer(text, parse_mode="HTML")
 
 
 # player /STATS command
@@ -177,20 +205,26 @@ async def stats_handler(message: Message):
     # ОТВЕТ
     # =========================
     text = (
+    "<pre>\n"
     f"📊 Статистика игрока {player_name}\n\n"
 
-    f"🎮 Матчей: {matches}\n"
-    f"⚽ Голов: {goals}\n"
-    f"📈 Голов за матч: {goals_per_game}\n"
-    f"🎩 Хет-трики: {hattricks}\n\n"
+    f"🎮 Матчей:        {matches:>4}\n"
+    f"⚽ Голов:         {goals:>4}\n"
+    f"📈 Голов/матч:    {goals_per_game:>4}\n"
+    f"🎩 Хет-трики:     {hattricks:>4}\n\n"
 
-    f"🏆 Побед: {wins}\n"
-    f"❌ Поражений: {losses}\n"
-    f"🤝 Ничьих: {draws}\n"
-    f"📊 Winrate: {winrate}%"
+    f"🏆 Побед:         {wins:>4}\n"
+    f"❌ Поражений:     {losses:>4}\n"
+    f"🤝 Ничьих:        {draws:>4}\n"
+    f"📊 Winrate:       {winrate:>3}%\n"
+    "</pre>"
 )
 
-    await bot.send_message(message.from_user.id, text)
+    await bot.send_message(
+        message.from_user.id,
+        text,
+        parse_mode="HTML"
+    )
 
 
 @dp.message(Command("matches"))
@@ -230,12 +264,14 @@ async def list_matches(message: Message):
     # -----------------------
     # output
     # -----------------------
-    text = ""
+    text = "<pre>\n"
 
     for match_id, date, red, green in rows:
-        text += f"Матч ID {match_id} {date} {red}-{green}\n"
+        text += f"Матч {match_id:<4} {date:<19} {red:>2}-{green:<2}\n"
 
-    await message.answer(text)
+    text += "</pre>"
+
+    await message.answer(text, parse_mode="HTML")
 
 def build_match_info(match_id):
 
@@ -375,12 +411,17 @@ async def top_matches(message: Message):
         await message.answer("Нет данных")
         return
 
-    text = f"🏆 ТОП {limit} игроков по матчам:\n\n"
+    text = f"<pre>🏆 ТОП {limit} игроков по матчам:\n\n"
 
     for i, (name, count) in enumerate(rows, start=1):
-        text += f"{i}. {name} — {count}\n"
+        text += f"{i:>2}. {name:<18}{count:>4}\n"
 
-    await message.answer(text)
+    text += "</pre>"
+
+    await message.answer(
+        text,
+        parse_mode="HTML"
+    )
 
 def get_player_name(player_id: int):
     cursor.execute("SELECT name FROM players WHERE id = ?", (player_id,))
@@ -413,7 +454,7 @@ async def general(message: Message):
     best_match = cursor.fetchone()
 
     best_match_text = (
-        f"ID {best_match[0]} {best_match[1]} {best_match[2]}-{best_match[3]}"
+        f"#{best_match[0]} {best_match[1]} {best_match[2]}-{best_match[3]}"
         if best_match else "Нет данных"
     )
 
