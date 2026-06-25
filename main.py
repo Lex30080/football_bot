@@ -17,6 +17,7 @@ import app.handlers.historic_match_handlers
 import app.handlers.stats_handlers
 import app.handlers.help_handlers
 import app.handlers.setup
+import app.handlers.table
 
 
 @dp.message(CommandStart())
