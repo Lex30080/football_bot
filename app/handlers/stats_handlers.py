@@ -233,7 +233,7 @@ async def list_matches(message: Message):
     text = ""
 
     for match_id, date, red, green in rows:
-        text += f"Матч №{match_id} {date} {red}-{green}\n"
+        text += f"Матч ID {match_id} {date} {red}-{green}\n"
 
     await message.answer(text)
 
@@ -287,7 +287,7 @@ def build_match_info(match_id):
 
     text = (
         f"📅 {match_date}\n"
-        f"🆔 Матч #{match_id}\n\n"
+        f"🆔 Матч ID {match_id}\n\n"
         f"🔴 {red_score} : {green_score} 🟢\n\n"
     )
 
@@ -413,7 +413,7 @@ async def general(message: Message):
     best_match = cursor.fetchone()
 
     best_match_text = (
-        f"#{best_match[0]} {best_match[1]} {best_match[2]}-{best_match[3]}"
+        f"ID {best_match[0]} {best_match[1]} {best_match[2]}-{best_match[3]}"
         if best_match else "Нет данных"
     )
 
