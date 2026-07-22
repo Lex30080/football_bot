@@ -1,5 +1,11 @@
 from app.database.db import cursor
-
+from aiogram.exceptions import TelegramBadRequest
+from aiogram import F
+from aiogram.types import CallbackQuery
+from aiogram.filters import Command
+from aiogram.types import Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from app.bot import dp
 
 def get_players_table():
 
@@ -62,6 +68,8 @@ def get_players_table():
 
         losses = games - wins - draws
 
+        points = wins * 3 + draws
+
         if games == 0:
             continue
         
@@ -71,7 +79,8 @@ def get_players_table():
             "draws": draws,
             "losses": losses,
             "games": games,
-            "goals": goals
+            "goals": goals,
+            "points": points
         })
 
     return result
@@ -80,7 +89,17 @@ def build_table(sort_by="wins"):
 
     players = get_players_table()
 
-    players.sort(
+    if sort_by == "points":
+        players.sort(
+        key=lambda x: (
+            x["points"],
+            x["wins"],
+            x["goals"]
+        ),
+        reverse=True
+    )
+    else:
+        players.sort(
         key=lambda x: x[sort_by],
         reverse=True
     )
@@ -88,31 +107,38 @@ def build_table(sort_by="wins"):
     text = (
         "📊 <b>Таблица игроков</b>\n\n"
         "<pre>"
-        "Игрок         W  D  L GP  G\n"
-        "----------------------------\n"
+        f"{'№':<3}"
+        f"{'Игрок':<14}"
+        f"{'W':>3}"
+        f"{'D':>3}"
+        f"{'L':>3}"
+        f"{'GP':>4}"
+        f"{'G':>4}"
+        f"{'Pts':>5}\n"
+        + "-" * 42 + "\n"
     )
 
-    for p in players:
+    for i, p in enumerate(players, start=1):
 
         text += (
-            f"{p['name'][:12]:12}"
+            f"{i:<3}"
+            f"{p['name']:<14}"
             f"{p['wins']:>3}"
             f"{p['draws']:>3}"
             f"{p['losses']:>3}"
-            f"{p['games']:>3}"
-            f"{p['goals']:>4}\n"
+            f"{p['games']:>4}"
+            f"{p['goals']:>4}"
+            f"{p['points']:>5}\n"
         )
 
     text += "</pre>"
 
     return text
 
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-
-
 def table_keyboard(current_sort="wins"):
 
     labels = {
+        "points": "📊 Points",
         "wins": "🏆 Wins",
         "draws": "🤝 Draws",
         "losses": "❌ Losses",
@@ -136,34 +162,30 @@ def table_keyboard(current_sort="wins"):
 
     return kb.as_markup()
 
-from aiogram.filters import Command
-from aiogram.types import Message
-
-from app.bot import dp
-
-
 @dp.message(Command("table"))
 async def show_table(message: Message):
 
     await message.answer(
-        build_table("wins"),
+        build_table("points"),
         parse_mode="HTML",
-        reply_markup=table_keyboard("wins")
+        reply_markup=table_keyboard("points")
     )
-
-from aiogram import F
-from aiogram.types import CallbackQuery
-
 
 @dp.callback_query(F.data.startswith("table:"))
 async def table_sort(callback: CallbackQuery):
 
     sort_by = callback.data.split(":")[1]
 
-    await callback.message.edit_text(
-        build_table(sort_by),
-        parse_mode="HTML",
-        reply_markup=table_keyboard(sort_by)
-    )
+    try:
+        await callback.message.edit_text(
+            build_table(sort_by),
+            parse_mode="HTML",
+            reply_markup=table_keyboard(sort_by)
+        )
+    except TelegramBadRequest:
+        pass
 
-    await callback.answer()   
+    await callback.answer()
+
+
+

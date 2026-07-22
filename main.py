@@ -18,7 +18,7 @@ import app.handlers.stats_handlers
 import app.handlers.help_handlers
 import app.handlers.setup
 import app.handlers.table
-
+import app.handlers.duo_stats
 
 @dp.message(CommandStart())
 async def start_handler(message: Message):
