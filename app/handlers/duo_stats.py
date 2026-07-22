@@ -110,7 +110,7 @@ async def chemistry_handler(message: Message, command: CommandObject):
 
     parts = command.args.split()
 
-    player = parts[0]
+    player = parts[0].lower()
 
     # По умолчанию показываем ТОП-3 связки
     limit = 3
@@ -123,19 +123,26 @@ async def chemistry_handler(message: Message, command: CommandObject):
 
     pair_stats = build_pair_statistics()
 
+    
+
     chemistry = []
 
     for pair, stats in pair_stats.items():
 
-        if player not in pair:
+        pair_lower = (pair[0].lower(), pair[1].lower())
+        
+        if player not in pair_lower:
             continue
 
-        teammate = pair[0] if pair[1] == player else pair[1]
+        if pair[0].lower() == player:
+            teammate = pair[1]
+        else:
+            teammate = pair[0]
 
         games = stats["games"]
 
         # Минимум 4 совместных матча
-        if games < 2:
+        if games < 3:
             continue
 
         winrate = stats["wins"] * 100 / games
@@ -170,21 +177,21 @@ async def chemistry_handler(message: Message, command: CommandObject):
     chemistry = chemistry[:limit]
 
     text = (
-        f"🧪 <b>Химия игрока {player}</b>\n\n"
-        "<pre>"
-        "Partner      WR   GP  GS  GM   GD\n"
-        "----------------------------------\n"
+    f"🧪 <b>Химия игрока {player}</b>\n\n"
+    "<pre>"
+    "Игрок          WR%   GP   GS   GА    GD\n"
+    "----------------------------------------\n"
     )
 
     for row in chemistry:
 
         text += (
             f"{row['name'][:12]:12}"
-            f"{row['winrate']:>5.1f}"
+            f"{row['winrate']:>6.1f}"
             f"{row['games']:>5}"
-            f"{row['goals_for']:>4}"
-            f"{row['goals_against']:>4}"
-            f"{row['goal_diff']:>5}\n"
+            f"{row['goals_for']:>5}"
+            f"{row['goals_against']:>5}"
+            f"{row['goal_diff']:>6}\n"
         )
 
     text += "</pre>"
