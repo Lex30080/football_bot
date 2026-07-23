@@ -177,16 +177,30 @@ async def chemistry_handler(message: Message, command: CommandObject):
     chemistry = chemistry[:limit]
 
     text = (
-    f"🧪 <b>Химия игрока {player}</b>\n\n"
-    "<pre>"
-    "Игрок          WR%   GP   GS   GА    GD\n"
-    "----------------------------------------\n"
+        f"🧪 <b>Химия игрока {player}</b>\n\n"
+        "<pre>"
     )
+
+    text += (
+        f"{'Игрок':9}"
+        f"{'WR%':>6}"
+        f"{'GP':>5}"
+        f"{'GS':>5}"
+        f"{'GA':>5}"
+        f"{'GD':>6}\n"
+    )
+
+    text += "-" * 36 + "\n"
 
     for row in chemistry:
 
+        name = row["name"]
+
+        if len(name) > 9:
+            name = name[:8] + "…"
+
         text += (
-            f"{row['name'][:12]:12}"
+            f"{name:9}"
             f"{row['winrate']:>6.1f}"
             f"{row['games']:>5}"
             f"{row['goals_for']:>5}"
