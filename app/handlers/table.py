@@ -108,21 +108,21 @@ def build_table(sort_by="wins"):
         "📊 <b>Таблица игроков</b>\n\n"
         "<pre>"
         f"{'№':<3}"
-        f"{'Игрок':<14}"
+        f"{'Игрок':<10}"
         f"{'W':>3}"
         f"{'D':>3}"
         f"{'L':>3}"
         f"{'GP':>4}"
         f"{'G':>4}"
         f"{'Pts':>5}\n"
-        + "-" * 42 + "\n"
-    )
+        + "-" * 36 + "\n"
+        )
 
     for i, p in enumerate(players, start=1):
 
         text += (
             f"{i:<3}"
-            f"{p['name']:<14}"
+            f"{p['name'][:10]:<10}"
             f"{p['wins']:>3}"
             f"{p['draws']:>3}"
             f"{p['losses']:>3}"
