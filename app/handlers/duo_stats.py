@@ -95,7 +95,7 @@ def build_pair_statistics():
 
     return pair_stats
 
-# 2. chemistry(player)
+# 1. chemistry(player)
 
 
 @dp.message(Command("chemistry"))
@@ -215,14 +215,611 @@ async def chemistry_handler(message: Message, command: CommandObject):
         parse_mode="HTML"
     )
 
-"""
-3. duo(player1, player2)
 
-4. top_duo_wins(limit)
+# 2. duo(player1, player2)
+@dp.message(Command("duo"))
+async def duo_handler(message: Message, command: CommandObject):
 
-5. top_duo_goals(limit)
+    if not command.args:
+        await message.answer(
+            "Использование:\n"
+            "/duo Игрок1 Игрок2"
+        )
+        return
 
-6. top_duo_diff(limit)
+    parts = command.args.split()
 
-7. хендлеры
-"""
+    if len(parts) < 2:
+        await message.answer(
+            "Нужно указать двух игроков:\n"
+            "/duo Игрок1 Игрок2"
+        )
+        return
+
+    player1 = parts[0].strip().lower()
+    player2 = parts[1].strip().lower()
+
+    if player1 == player2:
+        await message.answer("Нужно указать двух разных игроков.")
+        return
+
+    pair_stats = build_pair_statistics()
+
+    found_pair = None
+    found_stats = None
+
+    for pair, stats in pair_stats.items():
+
+        pair_lower = (
+            pair[0].strip().lower(),
+            pair[1].strip().lower()
+        )
+
+        if set(pair_lower) == {player1, player2}:
+            found_pair = pair
+            found_stats = stats
+            break
+
+    if not found_pair:
+        await message.answer(
+            "Эта связка не найдена."
+        )
+        return
+
+    games = found_stats["games"]
+
+    if games < 1:
+        await message.answer(
+            "Недостаточно данных "
+            "(минимум 1 совместный матч)."
+        )
+        return
+
+    wins = found_stats["wins"]
+    draws = found_stats["draws"]
+    losses = found_stats["losses"]
+
+    goals_for = found_stats["goals_for"]
+    goals_against = found_stats["goals_against"]
+
+    winrate = wins * 100 / games
+    goal_diff = goals_for - goals_against
+
+    text = (
+        "🤝 <b>DUO</b>\n\n"
+        f"<b>{found_pair[0]} + {found_pair[1]}</b>\n\n"
+        f"🏆 Winrate     {winrate:.1f}%\n"
+        f"🎮 Матчей      {games}\n"
+        f"✅ Побед       {wins}\n"
+        f"🤝 Ничьих      {draws}\n"
+        f"❌ Поражений   {losses}\n\n"
+        f"⚽ Забито      {goals_for}\n"
+        f"🥅 Пропущено   {goals_against}\n"
+        f"📈 Разница     {goal_diff:+d}"
+    )
+
+    await message.answer(
+        text,
+        parse_mode="HTML"
+    )
+
+# 3. top_duo_wins(limit)
+@dp.message(Command("topduowins"))
+async def top_duo_wins_handler(
+    message: Message,
+    command: CommandObject
+):
+
+    # По умолчанию показываем ТОП-5
+    limit = 5
+
+    if command.args:
+        try:
+            limit = int(command.args)
+        except ValueError:
+            pass
+
+    pair_stats = build_pair_statistics()
+
+    duos = []
+
+    for pair, stats in pair_stats.items():
+
+        # Минимум 3 совместных матча
+        if stats["games"] < 3:
+            continue
+
+        duos.append({
+            "pair": pair,
+            "games": stats["games"],
+            "wins": stats["wins"],
+            "winrate": stats["wins"] * 100 / stats["games"]
+        })
+
+    duos.sort(
+        key=lambda x: (
+            x["wins"],
+            x["winrate"],
+            x["games"]
+        ),
+        reverse=True
+    )
+
+    duos = duos[:limit]
+
+    if not duos:
+        await message.answer(
+            "Недостаточно данных."
+        )
+        return
+
+    text = "🏆 <b>ТОП DUO ПО ПОБЕДАМ</b>\n\n"
+
+    for i, duo in enumerate(duos, 1):
+
+        text += (
+            f"{i}. {duo['pair'][0]} + {duo['pair'][1]}\n"
+            f"   🏆 {duo['wins']} побед · "
+            f"WR {duo['winrate']:.0f}% · "
+            f"GP {duo['games']}\n\n"
+        )
+
+    await message.answer(
+        text,
+        parse_mode="HTML"
+    )
+
+# топ по поражениям
+@dp.message(Command("topduolosses"))
+async def top_duo_losses_handler(
+    message: Message,
+    command: CommandObject
+):
+
+    # По умолчанию показываем ТОП-5
+    limit = 5
+
+    if command.args:
+        try:
+            limit = int(command.args)
+        except ValueError:
+            pass
+
+    pair_stats = build_pair_statistics()
+
+    duos = []
+
+    for pair, stats in pair_stats.items():
+
+        # Минимум 3 совместных матча
+        if stats["games"] < 3:
+            continue
+
+        duos.append({
+            "pair": pair,
+            "games": stats["games"],
+            "losses": stats["losses"],
+            "winrate": stats["wins"] * 100 / stats["games"]
+        })
+
+    duos.sort(
+        key=lambda x: (
+            x["losses"],
+            x["games"]
+        ),
+        reverse=True
+    )
+
+    duos = duos[:limit]
+
+    if not duos:
+        await message.answer(
+            "Недостаточно данных."
+        )
+        return
+
+    text = "❌ <b>ТОП DUO ПО ПОРАЖЕНИЯМ</b>\n\n"
+
+    for i, duo in enumerate(duos, 1):
+
+        text += (
+            f"{i}. {duo['pair'][0]} + {duo['pair'][1]}\n"
+            f"   ❌ {duo['losses']} поражений · "
+            f"WR {duo['winrate']:.0f}% · "
+            f"GP {duo['games']}\n\n"
+        )
+
+    await message.answer(
+        text,
+        parse_mode="HTML"
+    )
+
+# топ по забитым голам
+@dp.message(Command("topduogoals"))
+async def top_duo_goals_handler(
+    message: Message,
+    command: CommandObject
+):
+
+    # По умолчанию показываем ТОП-5
+    limit = 5
+
+    if command.args:
+        try:
+            limit = int(command.args)
+        except ValueError:
+            pass
+
+    pair_stats = build_pair_statistics()
+
+    duos = []
+
+    for pair, stats in pair_stats.items():
+
+        # Минимум 3 совместных матча
+        if stats["games"] < 3:
+            continue
+
+        duos.append({
+            "pair": pair,
+            "games": stats["games"],
+            "goals_for": stats["goals_for"],
+            "goals_against": stats["goals_against"]
+        })
+
+    duos.sort(
+        key=lambda x: (
+            x["goals_for"],
+            x["games"]
+        ),
+        reverse=True
+    )
+
+    duos = duos[:limit]
+
+    if not duos:
+        await message.answer(
+            "Недостаточно данных."
+        )
+        return
+
+    text = "⚽ <b>ТОП DUO ПО ЗАБИТЫМ ГОЛАМ</b>\n\n"
+
+    for i, duo in enumerate(duos, 1):
+
+        text += (
+            f"{i}. {duo['pair'][0]} + {duo['pair'][1]}\n"
+            f"   ⚽ {duo['goals_for']} голов · "
+            f"🥅 {duo['goals_against']} пропущено · "
+            f"GP {duo['games']}\n\n"
+        )
+
+    await message.answer(
+        text,
+        parse_mode="HTML"
+    )
+
+# топ по пропущеным голам
+@dp.message(Command("topduogoalsagainst"))
+async def top_duo_goals_against_handler(
+    message: Message,
+    command: CommandObject
+):
+
+    # По умолчанию показываем ТОП-5
+    limit = 5
+
+    if command.args:
+        try:
+            limit = int(command.args)
+        except ValueError:
+            pass
+
+    pair_stats = build_pair_statistics()
+
+    duos = []
+
+    for pair, stats in pair_stats.items():
+
+        # Минимум 3 совместных матча
+        if stats["games"] < 3:
+            continue
+
+        duos.append({
+            "pair": pair,
+            "games": stats["games"],
+            "goals_against": stats["goals_against"],
+            "goals_for": stats["goals_for"]
+        })
+
+    duos.sort(
+        key=lambda x: (
+            x["goals_against"],
+            x["games"]
+        ),
+        reverse=True
+    )
+
+    duos = duos[:limit]
+
+    if not duos:
+        await message.answer(
+            "Недостаточно данных."
+        )
+        return
+
+    text = "🥅 <b>ТОП DUO ПО ПРОПУЩЕННЫМ ГОЛАМ</b>\n\n"
+
+    for i, duo in enumerate(duos, 1):
+
+        text += (
+            f"{i}. {duo['pair'][0]} + {duo['pair'][1]}\n"
+            f"   🥅 {duo['goals_against']} пропущено · "
+            f"⚽ {duo['goals_for']} забито · "
+            f"GP {duo['games']}\n\n"
+        )
+
+    await message.answer(
+        text,
+        parse_mode="HTML"
+    )
+
+# топ по разнице голов
+@dp.message(Command("topduodiff"))
+async def top_duo_diff_handler(
+    message: Message,
+    command: CommandObject
+):
+
+    # По умолчанию показываем ТОП-5
+    limit = 5
+
+    if command.args:
+        try:
+            limit = int(command.args)
+        except ValueError:
+            pass
+
+    pair_stats = build_pair_statistics()
+
+    duos = []
+
+    for pair, stats in pair_stats.items():
+
+        # Минимум 3 совместных матча
+        if stats["games"] < 3:
+            continue
+
+        goal_diff = (
+            stats["goals_for"]
+            - stats["goals_against"]
+        )
+
+        duos.append({
+            "pair": pair,
+            "games": stats["games"],
+            "goals_for": stats["goals_for"],
+            "goals_against": stats["goals_against"],
+            "goal_diff": goal_diff
+        })
+
+    duos.sort(
+        key=lambda x: (
+            x["goal_diff"],
+            x["games"]
+        ),
+        reverse=True
+    )
+
+    duos = duos[:limit]
+
+    if not duos:
+        await message.answer(
+            "Недостаточно данных."
+        )
+        return
+
+    text = "📈 <b>ТОП DUO ПО РАЗНИЦЕ ГОЛОВ</b>\n\n"
+
+    for i, duo in enumerate(duos, 1):
+
+        text += (
+            f"{i}. {duo['pair'][0]} + {duo['pair'][1]}\n"
+            f"   📈 {duo['goal_diff']:+d} · "
+            f"⚽ {duo['goals_for']} : "
+            f"{duo['goals_against']} · "
+            f"GP {duo['games']}\n\n"
+        )
+
+    await message.answer(
+        text,
+        parse_mode="HTML"
+    )
+
+# топ дуо по голам за матч
+@dp.message(Command("topduoaverage"))
+async def top_duo_average_handler(
+    message: Message,
+    command: CommandObject
+):
+
+    # По умолчанию показываем ТОП-5
+    limit = 5
+
+    if command.args:
+        try:
+            limit = int(command.args)
+        except ValueError:
+            pass
+
+    pair_stats = build_pair_statistics()
+
+    duos = []
+
+    for pair, stats in pair_stats.items():
+
+        # Минимум 3 совместных матча
+        if stats["games"] < 3:
+            continue
+
+        average_goals = (
+            stats["goals_for"] / stats["games"]
+        )
+
+        duos.append({
+            "pair": pair,
+            "games": stats["games"],
+            "goals_for": stats["goals_for"],
+            "goals_against": stats["goals_against"],
+            "average_goals": average_goals
+        })
+
+    duos.sort(
+        key=lambda x: (
+            x["average_goals"],
+            x["games"]
+        ),
+        reverse=True
+    )
+
+    duos = duos[:limit]
+
+    if not duos:
+        await message.answer(
+            "Недостаточно данных."
+        )
+        return
+
+    text = "⚽ <b>ТОП DUO ПО СРЕДНИМ ГОЛАМ</b>\n\n"
+
+    for i, duo in enumerate(duos, 1):
+
+        text += (
+            f"{i}. {duo['pair'][0]} + {duo['pair'][1]}\n"
+            f"   ⚽ {duo['average_goals']:.2f} за матч · "
+            f"{duo['goals_for']} забито · "
+            f"GP {duo['games']}\n\n"
+        )
+
+    await message.answer(
+        text,
+        parse_mode="HTML"
+    )
+
+@dp.message(Command("topduo"))
+async def top_duo_handler(
+    message: Message,
+    command: CommandObject
+):
+    limit = 5
+
+    if command.args:
+        try:
+            limit = int(command.args)
+        except ValueError:
+            pass
+
+    pair_stats = build_pair_statistics()
+
+    duos = []
+
+    for pair, stats in pair_stats.items():
+
+        if stats["games"] < 3:
+            continue
+
+        winrate = stats["wins"] * 100 / stats["games"]
+
+        duos.append({
+            "pair": pair,
+            "games": stats["games"],
+            "wins": stats["wins"],
+            "winrate": winrate
+        })
+
+    duos.sort(
+        key=lambda x: (
+            x["winrate"],
+            x["wins"],
+            x["games"]
+        ),
+        reverse=True
+    )
+
+    duos = duos[:limit]
+
+    if not duos:
+        await message.answer("Недостаточно данных.")
+        return
+
+    text = "🤝 <b>ТОП DUO ПО WINRATE</b>\n\n"
+
+    for i, duo in enumerate(duos, 1):
+
+        text += (
+            f"{i}. {duo['pair'][0]} + {duo['pair'][1]}\n"
+            f"   🏆 {duo['wins']} побед · "
+            f"WR {duo['winrate']:.0f}% · "
+            f"GP {duo['games']}\n\n"
+        )
+
+    await message.answer(text, parse_mode="HTML")
+
+@dp.message(Command("topduoworst"))
+async def top_duo_worst_handler(
+    message: Message,
+    command: CommandObject
+):
+    limit = 5
+
+    if command.args:
+        try:
+            limit = int(command.args)
+        except ValueError:
+            pass
+
+    pair_stats = build_pair_statistics()
+
+    duos = []
+
+    for pair, stats in pair_stats.items():
+
+        if stats["games"] < 3:
+            continue
+
+        winrate = stats["wins"] * 100 / stats["games"]
+
+        duos.append({
+            "pair": pair,
+            "games": stats["games"],
+            "wins": stats["wins"],
+            "losses": stats["losses"],
+            "winrate": winrate
+        })
+
+    duos.sort(
+        key=lambda x: (
+            x["winrate"],
+            -x["losses"],
+            -x["games"]
+        )
+    )
+
+    duos = duos[:limit]
+
+    if not duos:
+        await message.answer("Недостаточно данных.")
+        return
+
+    text = "💀 <b>ХУДШИЕ DUO ПО WINRATE</b>\n\n"
+
+    for i, duo in enumerate(duos, 1):
+
+        text += (
+            f"{i}. {duo['pair'][0]} + {duo['pair'][1]}\n"
+            f"   💀 {duo['losses']} поражений · "
+            f"WR {duo['winrate']:.0f}% · "
+            f"GP {duo['games']}\n\n"
+        )
+
+    await message.answer(text, parse_mode="HTML")
